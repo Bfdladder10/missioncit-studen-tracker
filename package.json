@@ -2,9 +2,9 @@
   "name": "ems-tracker-api",
   "version": "1.0.0",
   "description": "EMS Student Tracker API",
-  "main": "index.js",
+  "main": "simple-db-test.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node simple-db-test.js"
   },
   "dependencies": {
     "express": "^4.18.2",
