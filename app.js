@@ -1159,6 +1159,222 @@ app.get('/api/skills/progress', authMiddleware, async (req, res) => {
   let client;
   try {
     client = await connectToDb();
+
+    // Get patient contacts for a student
+app.get('/api/patients', authMiddleware, async (req, res) => {
+  // Only students can access their patient contacts
+  if (req.user.role !== 'student') {
+    return res.status(403).json({ error: 'Access forbidden' });
+  }
+  
+  let client;
+  try {
+    client = await connectToDb();
+    
+    // Get student's patient contacts
+    const contactsResult = await client.query(`
+      SELECT 
+        pc.contact_id, 
+        pc.contact_date,
+        pc.patient_age,
+        pc.patient_gender,
+        pc.chief_complaint,
+        pc.bp_systolic,
+        pc.bp_diastolic,
+        pc.heart_rate,
+        pc.respiratory_rate,
+        pc.spo2,
+        pc.temperature,
+        pc.notes
+      FROM patient_contacts pc
+      WHERE pc.student_id = $1
+      ORDER BY pc.contact_date DESC
+    `, [req.user.userId]);
+    
+    // For each contact, get interventions
+    const contacts = contactsResult.rows;
+    
+    for (const contact of contacts) {
+      const interventionsResult = await client.query(`
+        SELECT pi.intervention_id, s.skill_id, s.skill_name
+        FROM patient_interventions pi
+        JOIN skills s ON pi.skill_id = s.skill_id
+        WHERE pi.contact_id = $1
+      `, [contact.contact_id]);
+      
+      contact.interventions = interventionsResult.rows;
+    }
+    
+    res.json({
+      contacts: contacts
+    });
+    
+  } catch (error) {
+    console.error('Error fetching patient contacts:', error);
+    res.status(500).json({ error: 'Failed to fetch patient contacts' });
+  } finally {
+    if (client) await client.end();
+  }
+});
+
+// Add a new patient contact
+app.post('/api/patients', authMiddleware, async (req, res) => {
+  // Only students can add patient contacts
+  if (req.user.role !== 'student') {
+    return res.status(403).json({ error: 'Only students can add patient contacts' });
+  }
+  
+  const { 
+    patientAge, 
+    patientGender, 
+    chiefComplaint,
+    bpSystolic,
+    bpDiastolic,
+    heartRate,
+    respRate,
+    spo2,
+    temperature,
+    interventions,
+    notes
+  } = req.body;
+  
+  // Validate required fields
+  if (!patientAge || !patientGender || !chiefComplaint) {
+    return res.status(400).json({ error: 'Age, gender, and chief complaint are required' });
+  }
+  
+  let client;
+  try {
+    client = await connectToDb();
+    
+    // Start transaction
+    await client.query('BEGIN');
+    
+    // Insert patient contact
+    const contactResult = await client.query(`
+      INSERT INTO patient_contacts (
+        student_id,
+        patient_age,
+        patient_gender,
+        chief_complaint,
+        bp_systolic,
+        bp_diastolic,
+        heart_rate,
+        respiratory_rate,
+        spo2,
+        temperature,
+        notes
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING contact_id
+    `, [
+      req.user.userId,
+      patientAge,
+      patientGender,
+      chiefComplaint,
+      bpSystolic || null,
+      bpDiastolic || null,
+      heartRate || null,
+      respRate || null,
+      spo2 || null,
+      temperature || null,
+      notes
+    ]);
+    
+    const contactId = contactResult.rows[0].contact_id;
+    
+    // Add interventions if provided
+    if (interventions && interventions.length > 0) {
+      for (const skillId of interventions) {
+        await client.query(`
+          INSERT INTO patient_interventions (contact_id, skill_id)
+          VALUES ($1, $2)
+        `, [contactId, skillId]);
+      }
+    }
+    
+    // Commit transaction
+    await client.query('COMMIT');
+    
+    res.status(201).json({
+      success: true,
+      message: 'Patient contact added successfully',
+      contactId
+    });
+    
+  } catch (error) {
+    // Rollback transaction on error
+    if (client) {
+      await client.query('ROLLBACK');
+    }
+    
+    console.error('Error adding patient contact:', error);
+    res.status(500).json({ error: 'Failed to add patient contact' });
+  } finally {
+    if (client) {
+      await client.end();
+    }
+  }
+});
+
+// Get patient contact stats
+app.get('/api/patients/stats', authMiddleware, async (req, res) => {
+  // Only students have patient contact stats
+  if (req.user.role !== 'student') {
+    return res.json({ total: 0, required: 0, percentage: 0 });
+  }
+  
+  let client;
+  try {
+    client = await connectToDb();
+    
+    // Get student's certification level
+    const studentResult = await client.query(
+      'SELECT certification_level_id FROM students WHERE student_id = $1',
+      [req.user.userId]
+    );
+    
+    if (studentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Student record not found' });
+    }
+    
+    const certLevelId = studentResult.rows[0].certification_level_id;
+    
+    // Get system config for patient contacts required
+    const configResult = await client.query(`
+      SELECT feature_value
+      FROM system_config
+      WHERE certification_level_id = $1 AND feature_key = 'patient_contacts_required'
+    `, [certLevelId]);
+    
+    // Default to 10 if not specified
+    const required = configResult.rows.length > 0 
+      ? parseInt(configResult.rows[0].feature_value) 
+      : 10;
+    
+    // Get total patient contacts for student
+    const totalResult = await client.query(`
+      SELECT COUNT(*) as count
+      FROM patient_contacts
+      WHERE student_id = $1
+    `, [req.user.userId]);
+    
+    const total = parseInt(totalResult.rows[0].count);
+    const percentage = Math.min(100, Math.round((total / required) * 100));
+    
+    res.json({
+      total,
+      required,
+      percentage
+    });
+    
+  } catch (error) {
+    console.error('Error fetching patient contact stats:', error);
+    res.status(500).json({ error: 'Failed to fetch patient contact stats' });
+  } finally {
+    if (client) await client.end();
+  }
+});
     
     // Get student's certification level
     const studentResult = await client.query(
