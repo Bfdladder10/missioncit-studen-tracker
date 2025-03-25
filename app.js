@@ -1,11 +1,18 @@
-// Complete application with full database setup
+// Complete app.js file with authentication system
 const express = require('express');
 const { Client } = require('pg');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// JWT secret key (in production this should be in environment variables)
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
 // Middleware
 app.use(express.json());
+app.use(cookieParser());
 
 // Database connection function
 async function connectToDb() {
@@ -18,6 +25,23 @@ async function connectToDb() {
   
   await client.connect();
   return client;
+}
+
+// Auth middleware to protect routes
+function authMiddleware(req, res, next) {
+  try {
+    const token = req.cookies.token;
+    
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
 }
 
 // Home route
@@ -37,6 +61,12 @@ app.get('/', (req, res) => {
       <body>
         <h1>EMS Student Tracker</h1>
         <div class="card">
+          <h2>Welcome to EMS Tracker</h2>
+          <p>Please <a href="/login">login</a> or <a href="/register">register</a> to continue.</p>
+          <a href="/login" class="button">Login</a>
+          <a href="/register" class="button">Register</a>
+        </div>
+        <div class="card">
           <h2>Database Tools</h2>
           <p>Database is successfully connected!</p>
           <a href="/test-db" class="button">Test Database</a>
@@ -45,6 +75,469 @@ app.get('/', (req, res) => {
       </body>
     </html>
   `);
+});
+
+// Login form
+app.get('/login', (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <title>EMS Tracker - Login</title>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; }
+          h1 { color: #c57100; }
+          .form-group { margin-bottom: 15px; }
+          label { display: block; margin-bottom: 5px; }
+          input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+          button { background: #c57100; color: white; border: none; padding: 10px 15px; 
+                 border-radius: 4px; cursor: pointer; }
+          .error { color: red; margin-top: 15px; }
+          a { color: #c57100; }
+        </style>
+      </head>
+      <body>
+        <h1>EMS Tracker Login</h1>
+        <div id="errorMessage" class="error" style="display: none;"></div>
+        <form id="loginForm">
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required>
+          </div>
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required>
+          </div>
+          <button type="submit">Log In</button>
+        </form>
+        <p>Don't have an account? <a href="/register">Register</a></p>
+        
+        <script>
+          document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+              const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email, password })
+              });
+              
+              const data = await response.json();
+              
+              if (!response.ok) {
+                throw new Error(data.error || 'Login failed');
+              }
+              
+              // Redirect to dashboard on success
+              window.location.href = '/dashboard';
+              
+            } catch (error) {
+              const errorMsg = document.getElementById('errorMessage');
+              errorMsg.textContent = error.message;
+              errorMsg.style.display = 'block';
+            }
+          });
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+// Registration form
+app.get('/register', (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <title>EMS Tracker - Register</title>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; }
+          h1 { color: #c57100; }
+          .form-group { margin-bottom: 15px; }
+          label { display: block; margin-bottom: 5px; }
+          input, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+          button { background: #c57100; color: white; border: none; padding: 10px 15px; 
+                 border-radius: 4px; cursor: pointer; }
+          .error { color: red; margin-top: 15px; }
+          a { color: #c57100; }
+        </style>
+      </head>
+      <body>
+        <h1>EMS Tracker Registration</h1>
+        <div id="errorMessage" class="error" style="display: none;"></div>
+        <form id="registerForm">
+          <div class="form-group">
+            <label for="firstName">First Name</label>
+            <input type="text" id="firstName" name="firstName" required>
+          </div>
+          <div class="form-group">
+            <label for="lastName">Last Name</label>
+            <input type="text" id="lastName" name="lastName" required>
+          </div>
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required>
+          </div>
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required>
+          </div>
+          <div class="form-group">
+            <label for="role">Role</label>
+            <select id="role" name="role" required>
+              <option value="student">Student</option>
+              <option value="instructor">Instructor</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </div>
+          <button type="submit">Register</button>
+        </form>
+        <p>Already have an account? <a href="/login">Login</a></p>
+        
+        <script>
+          document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const userData = {
+              firstName: document.getElementById('firstName').value,
+              lastName: document.getElementById('lastName').value,
+              email: document.getElementById('email').value,
+              password: document.getElementById('password').value,
+              role: document.getElementById('role').value
+            };
+            
+            try {
+              const response = await fetch('/api/register', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(userData)
+              });
+              
+              const data = await response.json();
+              
+              if (!response.ok) {
+                throw new Error(data.error || 'Registration failed');
+              }
+              
+              // Redirect to dashboard on success
+              window.location.href = '/dashboard';
+              
+            } catch (error) {
+              const errorMsg = document.getElementById('errorMessage');
+              errorMsg.textContent = error.message;
+              errorMsg.style.display = 'block';
+            }
+          });
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+// Dashboard page (protected)
+app.get('/dashboard', authMiddleware, (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <title>EMS Tracker - Dashboard</title>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+          h1, h2 { color: #c57100; }
+          .card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+          .button { display: inline-block; background: #c57100; color: white; padding: 10px 15px; 
+                    text-decoration: none; border-radius: 4px; margin-top: 15px; }
+          .stats { display: flex; gap: 20px; margin: 20px 0; }
+          .stat-card { flex: 1; background: #f9f9f9; border-radius: 8px; padding: 15px; text-align: center; }
+          .stat-number { font-size: 32px; font-weight: bold; margin: 10px 0; color: #c57100; }
+          .navbar { background: #f9f9f9; padding: 10px; border-radius: 8px; margin-bottom: 20px; }
+          .navbar a { color: #333; text-decoration: none; padding: 8px 15px; display: inline-block; }
+          .navbar a:hover { background: #e9e9e9; border-radius: 4px; }
+        </style>
+      </head>
+      <body>
+        <div class="navbar">
+          <a href="/dashboard">Dashboard</a>
+          <a href="/skills">Skills</a>
+          <a href="/patients">Patient Contacts</a>
+          <a href="/clinicals">Clinicals</a>
+          <a href="#" id="logoutButton" style="float: right;">Logout</a>
+        </div>
+        
+        <h1>Welcome <span id="userName"></span>!</h1>
+        
+        <div class="stats">
+          <div class="stat-card">
+            <div>Skills Completed</div>
+            <div class="stat-number">0/0</div>
+            <div>0%</div>
+          </div>
+          <div class="stat-card">
+            <div>Patient Contacts</div>
+            <div class="stat-number">0/0</div>
+            <div>0%</div>
+          </div>
+          <div class="stat-card">
+            <div>Clinical Hours</div>
+            <div class="stat-number">0/0</div>
+            <div>0%</div>
+          </div>
+        </div>
+        
+        <div class="card">
+          <h2>Recent Activity</h2>
+          <p>No recent activity to display.</p>
+        </div>
+        
+        <script>
+          // Fetch user info when page loads
+          fetch('/api/me')
+            .then(response => response.json())
+            .then(data => {
+              document.getElementById('userName').textContent = data.user.firstName + ' ' + data.user.lastName;
+            })
+            .catch(error => console.error('Error fetching user data:', error));
+          
+          // Logout functionality
+          document.getElementById('logoutButton').addEventListener('click', async (e) => {
+            e.preventDefault();
+            
+            try {
+              await fetch('/api/logout', { method: 'POST' });
+              window.location.href = '/login';
+            } catch (error) {
+              console.error('Logout error:', error);
+            }
+          });
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+// API Routes
+
+// User data endpoint
+app.get('/api/me', authMiddleware, async (req, res) => {
+  let client;
+  try {
+    client = await connectToDb();
+    
+    const result = await client.query(
+      'SELECT user_id, email, first_name, last_name, role FROM users WHERE user_id = $1',
+      [req.user.userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const user = result.rows[0];
+    
+    res.json({
+      user: {
+        userId: user.user_id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching user data:', error);
+    res.status(500).json({ error: 'Failed to fetch user data' });
+  } finally {
+    if (client) await client.end();
+  }
+});
+
+// Registration endpoint
+app.post('/api/register', async (req, res) => {
+  let client;
+  try {
+    const { email, password, firstName, lastName, role } = req.body;
+    
+    // Validate input
+    if (!email || !password || !firstName || !lastName || !role) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+    
+    // Check if role is valid
+    if (!['student', 'admin', 'instructor'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+    
+    client = await connectToDb();
+    
+    // Check if user already exists
+    const userCheck = await client.query(
+      'SELECT * FROM users WHERE email = $1',
+      [email]
+    );
+    
+    if (userCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
+    
+    // Hash password
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+    
+    // Start transaction
+    await client.query('BEGIN');
+    
+    // Insert user
+    const result = await client.query(
+      `INSERT INTO users (email, password_hash, first_name, last_name, role)
+       VALUES ($1, $2, $3, $4, $5) RETURNING user_id`,
+      [email, passwordHash, firstName, lastName, role]
+    );
+    
+    const userId = result.rows[0].user_id;
+    
+    // If role is student, create student record
+    if (role === 'student') {
+      // Get certification level ID for EMT (default)
+      const certResult = await client.query(
+        'SELECT level_id FROM certification_levels WHERE level_name = $1',
+        ['EMT']
+      );
+      
+      const certLevelId = certResult.rows[0].level_id;
+      
+      // Create student record
+      await client.query(
+        `INSERT INTO students (student_id, certification_level_id, enrollment_date)
+         VALUES ($1, $2, CURRENT_DATE)`,
+        [userId, certLevelId]
+      );
+    }
+    
+    // Commit transaction
+    await client.query('COMMIT');
+    
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        userId, 
+        email, 
+        role,
+        firstName,
+        lastName
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    
+    // Set token as HTTP-only cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: 'strict'
+    });
+    
+    res.status(201).json({
+      message: 'User registered successfully',
+      user: { userId, email, firstName, lastName, role }
+    });
+    
+  } catch (error) {
+    // Rollback transaction on error
+    if (client) {
+      await client.query('ROLLBACK');
+    }
+    
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Registration failed' });
+  } finally {
+    if (client) {
+      await client.end();
+    }
+  }
+});
+
+// Login endpoint
+app.post('/api/login', async (req, res) => {
+  let client;
+  try {
+    const { email, password } = req.body;
+    
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    
+    client = await connectToDb();
+    
+    // Find user
+    const result = await client.query(
+      'SELECT * FROM users WHERE email = $1',
+      [email]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const user = result.rows[0];
+    
+    // Verify password
+    const passwordValid = await bcrypt.compare(password, user.password_hash);
+    
+    if (!passwordValid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        userId: user.user_id, 
+        email: user.email, 
+        role: user.role,
+        firstName: user.first_name,
+        lastName: user.last_name
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    
+    // Set token as HTTP-only cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: 'strict'
+    });
+    
+    res.json({
+      message: 'Login successful',
+      user: {
+        userId: user.user_id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role
+      }
+    });
+    
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  } finally {
+    if (client) {
+      await client.end();
+    }
+  }
+});
+
+// Logout endpoint
+app.post('/api/logout', (req, res) => {
+  res.clearCookie('token');
+  res.json({ message: 'Logout successful' });
 });
 
 // Test database connection
@@ -323,158 +816,4 @@ app.get('/setup-db', async (req, res) => {
           ('EMR', 'Emergency Medical Responder'),
           ('EMT', 'Emergency Medical Technician'),
           ('AEMT', 'Advanced Emergency Medical Technician'),
-          ('Paramedic', 'Paramedic');
-      `);
-      console.log('Inserted certification levels');
-    }
-    
-    // Check if skill_categories is empty
-    const skillCategoriesCheck = await client.query('SELECT COUNT(*) FROM skill_categories');
-    if (parseInt(skillCategoriesCheck.rows[0].count) === 0) {
-      // Insert skill categories
-      await client.query(`
-        INSERT INTO skill_categories (category_name, description)
-        VALUES
-          ('Airway', 'Airway management skills'),
-          ('Assessment', 'Patient assessment skills'),
-          ('Circulation', 'Circulatory support skills'),
-          ('Medical', 'Medical emergency skills'),
-          ('Trauma', 'Trauma management skills');
-      `);
-      console.log('Inserted skill categories');
-    }
-
-    // Insert some sample skills if skills table is empty
-    const skillsCheck = await client.query('SELECT COUNT(*) FROM skills');
-    if (parseInt(skillsCheck.rows[0].count) === 0) {
-      // Get category IDs
-      const categories = await client.query('SELECT category_id, category_name FROM skill_categories');
-      const categoryMap = {};
-      
-      // Create a map of category name to ID
-      categories.rows.forEach(cat => {
-        categoryMap[cat.category_name] = cat.category_id;
-      });
-      
-      // Insert skills
-      await client.query(`
-        INSERT INTO skills (category_id, skill_name, description)
-        VALUES
-          (${categoryMap['Airway']}, 'Oral Airway Insertion', 'Properly insert an oropharyngeal airway'),
-          (${categoryMap['Airway']}, 'Bag-Valve-Mask', 'Properly ventilate a patient using a BVM'),
-          (${categoryMap['Airway']}, 'Suctioning', 'Properly suction a patient airway'),
-          (${categoryMap['Assessment']}, 'Vital Signs', 'Properly assess patient vital signs'),
-          (${categoryMap['Assessment']}, 'Patient History', 'Properly obtain a comprehensive patient history'),
-          (${categoryMap['Circulation']}, 'CPR', 'Properly perform CPR on an adult patient'),
-          (${categoryMap['Circulation']}, 'Bleeding Control', 'Properly control external bleeding'),
-          (${categoryMap['Circulation']}, 'Tourniquet Application', 'Properly apply a tourniquet to control bleeding'),
-          (${categoryMap['Medical']}, 'Medication Administration', 'Properly administer medications per protocol'),
-          (${categoryMap['Trauma']}, 'Bandaging', 'Properly apply bandages to wounds'),
-          (${categoryMap['Trauma']}, 'Splinting', 'Properly apply splints to suspected fractures');
-      `);
-      console.log('Inserted sample skills');
-    }
-
-    // Insert system configuration if empty
-    const configCheck = await client.query('SELECT COUNT(*) FROM system_config');
-    if (parseInt(configCheck.rows[0].count) === 0) {
-      // Get certification level IDs
-      const levels = await client.query('SELECT level_id, level_name FROM certification_levels');
-      const levelMap = {};
-      
-      // Create a map of level name to ID
-      levels.rows.forEach(level => {
-        levelMap[level.level_name] = level.level_id;
-      });
-      
-      // Insert configuration
-      await client.query(`
-        INSERT INTO system_config (certification_level_id, feature_key, feature_value)
-        VALUES
-          (${levelMap['EMR']}, 'enable_clinical_hours_tracking', 'false'),
-          (${levelMap['EMR']}, 'enable_patient_contacts_tracking', 'true'),
-          (${levelMap['EMT']}, 'enable_clinical_hours_tracking', 'false'),
-          (${levelMap['EMT']}, 'enable_patient_contacts_tracking', 'true'),
-          (${levelMap['AEMT']}, 'enable_clinical_hours_tracking', 'true'),
-          (${levelMap['AEMT']}, 'enable_patient_contacts_tracking', 'true'),
-          (${levelMap['Paramedic']}, 'enable_clinical_hours_tracking', 'true'),
-          (${levelMap['Paramedic']}, 'enable_patient_contacts_tracking', 'true');
-      `);
-      console.log('Inserted system configuration');
-    }
-    
-    // Commit transaction
-    await client.query('COMMIT');
-    
-    res.send(`
-      <html>
-        <head>
-          <title>Database Setup</title>
-          <style>
-            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-            h1 { color: #c57100; }
-            .success { color: green; }
-            ul { line-height: 1.6; }
-          </style>
-        </head>
-        <body>
-          <h1>Database Setup</h1>
-          <p class="success">Database tables created successfully!</p>
-          <p>The following tables were created:</p>
-          <ul>
-            <li>users</li>
-            <li>certification_levels</li>
-            <li>students</li>
-            <li>skill_categories</li>
-            <li>skills</li>
-            <li>certification_skills</li>
-            <li>student_skills</li>
-            <li>clinical_locations</li>
-            <li>clinical_opportunities</li>
-            <li>student_preferences</li>
-            <li>student_clinicals</li>
-            <li>patient_contacts</li>
-            <li>patient_interventions</li>
-            <li>system_config</li>
-          </ul>
-          <p>Initial data for certification levels, skill categories, sample skills, and system configuration has been inserted.</p>
-          <p><a href="/">Back to home</a></p>
-        </body>
-      </html>
-    `);
-  } catch (error) {
-    // Rollback transaction on error
-    if (client) {
-      await client.query('ROLLBACK');
-    }
-    
-    console.error('Error setting up database:', error);
-    
-    res.status(500).send(`
-      <html>
-        <head>
-          <title>Database Setup Error</title>
-          <style>
-            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-            h1 { color: #c57100; }
-            .error { color: red; }
-          </style>
-        </head>
-        <body>
-          <h1>Database Setup Error</h1>
-          <p class="error">Error: ${error.message}</p>
-          <p><a href="/">Back to home</a></p>
-        </body>
-      </html>
-    `);
-  } finally {
-    if (client) {
-      await client.end();
-    }
-  }
-});
-
-// Start the server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+          ('Paramedic',
