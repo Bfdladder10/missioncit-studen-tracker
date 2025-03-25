@@ -1,23 +1,22 @@
 // This file contains the database setup script
-const { Pool } = require('pg');
-
-// Get database connection string from environment variable
-// Render automatically sets this for connected databases
-const connectionString = process.env.DATABASE_URL;
-
-// Create a database connection pool
-const pool = new Pool({
-  connectionString,
-  ssl: {
-    rejectUnauthorized: false // Needed for Render's PostgreSQL
-  }
-});
+const { Client } = require('pg');
 
 // Function to set up the database tables
 async function setupDatabase() {
-  const client = await pool.connect();
+  // Create a new client for this operation
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+      rejectUnauthorized: false
+    }
+  });
   
   try {
+    // Connect to the database
+    console.log('Connecting to database...');
+    await client.connect();
+    console.log('Connected successfully!');
+    
     // Start a transaction
     await client.query('BEGIN');
     
@@ -267,8 +266,9 @@ async function setupDatabase() {
     console.error('Error setting up database:', error);
     throw error;
   } finally {
-    // Release the client back to the pool
-    client.release();
+    // Close the client connection
+    await client.end();
+    console.log('Database connection closed');
   }
 }
 
