@@ -1,4 +1,4 @@
-// Complete app.js file with authentication system
+// Complete app.js file with authentication and skills tracking
 const express = require('express');
 const { Client } = require('pg');
 const bcrypt = require('bcrypt');
@@ -42,6 +42,21 @@ function authMiddleware(req, res, next) {
   } catch (error) {
     return res.status(401).json({ error: 'Invalid token' });
   }
+}
+
+// Role middleware - ensure user has specific role
+function roleMiddleware(roles) {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Access forbidden' });
+    }
+    
+    next();
+  };
 }
 
 // Home route
@@ -273,24 +288,26 @@ app.get('/dashboard', authMiddleware, (req, res) => {
         <div class="stats">
           <div class="stat-card">
             <div>Skills Completed</div>
-            <div class="stat-number">0/0</div>
-            <div>0%</div>
+            <div class="stat-number" id="skillsCompleted">0/0</div>
+            <div id="skillsPercentage">0%</div>
           </div>
           <div class="stat-card">
             <div>Patient Contacts</div>
-            <div class="stat-number">0/0</div>
-            <div>0%</div>
+            <div class="stat-number" id="patientContacts">0/0</div>
+            <div id="contactsPercentage">0%</div>
           </div>
           <div class="stat-card">
             <div>Clinical Hours</div>
-            <div class="stat-number">0/0</div>
-            <div>0%</div>
+            <div class="stat-number" id="clinicalHours">0/0</div>
+            <div id="hoursPercentage">0%</div>
           </div>
         </div>
         
         <div class="card">
           <h2>Recent Activity</h2>
           <p>No recent activity to display.</p>
+          <a href="/skills" class="button">Log Skills</a>
+          <a href="/patients" class="button">Log Patient Contact</a>
         </div>
         
         <script>
@@ -301,6 +318,21 @@ app.get('/dashboard', authMiddleware, (req, res) => {
               document.getElementById('userName').textContent = data.user.firstName + ' ' + data.user.lastName;
             })
             .catch(error => console.error('Error fetching user data:', error));
+          
+          // Fetch skills progress for student
+          if ('${req.user.role}' === 'student') {
+            fetch('/api/skills/progress')
+              .then(response => response.json())
+              .then(data => {
+                if (data.completed !== undefined) {
+                  document.getElementById('skillsCompleted').textContent = 
+                    data.completed + '/' + data.total;
+                  document.getElementById('skillsPercentage').textContent = 
+                    Math.round((data.completed / data.total) * 100) + '%';
+                }
+              })
+              .catch(error => console.error('Error fetching skills data:', error));
+          }
           
           // Logout functionality
           document.getElementById('logoutButton').addEventListener('click', async (e) => {
@@ -313,6 +345,262 @@ app.get('/dashboard', authMiddleware, (req, res) => {
               console.error('Logout error:', error);
             }
           });
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+// Skills Page (protected - student view)
+app.get('/skills', authMiddleware, (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <title>EMS Tracker - Skills</title>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+          h1, h2 { color: #c57100; }
+          .card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+          .button { display: inline-block; background: #c57100; color: white; padding: 10px 15px; 
+                    text-decoration: none; border-radius: 4px; margin-top: 15px; }
+          .navbar { background: #f9f9f9; padding: 10px; border-radius: 8px; margin-bottom: 20px; }
+          .navbar a { color: #333; text-decoration: none; padding: 8px 15px; display: inline-block; }
+          .navbar a:hover { background: #e9e9e9; border-radius: 4px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+          th { background-color: #f9f9f9; }
+          .skill-category { background-color: #f5f5f5; font-weight: bold; }
+          .progress-bar-container { height: 12px; background-color: #f0f0f0; border-radius: 6px; overflow: hidden; }
+          .progress-bar { height: 100%; background-color: #c57100; border-radius: 6px; }
+          .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; 
+                   overflow: auto; background-color: rgba(0,0,0,0.4); }
+          .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; 
+                          border: 1px solid #888; width: 80%; max-width: 500px; border-radius: 8px; }
+          .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+          .close:hover { color: black; }
+          .form-group { margin-bottom: 15px; }
+          label { display: block; margin-bottom: 5px; }
+          input, select, textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+          .btn-success { background-color: #28a745; color: white; padding: 10px 15px; 
+                        border: none; border-radius: 4px; cursor: pointer; }
+        </style>
+      </head>
+      <body>
+        <div class="navbar">
+          <a href="/dashboard">Dashboard</a>
+          <a href="/skills">Skills</a>
+          <a href="/patients">Patient Contacts</a>
+          <a href="/clinicals">Clinicals</a>
+          <a href="#" id="logoutButton" style="float: right;">Logout</a>
+        </div>
+        
+        <h1>Skills Tracking</h1>
+        
+        <div class="card">
+          <h2>Your Skills Progress</h2>
+          <p>Track your progress on required skills for your certification level.</p>
+          <button class="button" id="logSkillBtn">Log New Skill</button>
+        </div>
+        
+        <div id="skillsContainer">
+          <p>Loading skills...</p>
+        </div>
+        
+        <!-- Modal for logging a new skill -->
+        <div id="logSkillModal" class="modal">
+          <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Log Skill Completion</h2>
+            <form id="logSkillForm">
+              <div class="form-group">
+                <label for="skillSelect">Select Skill</label>
+                <select id="skillSelect" required></select>
+              </div>
+              <div class="form-group">
+                <label for="location">Location</label>
+                <input type="text" id="location" required placeholder="Where was this skill performed?">
+              </div>
+              <div class="form-group">
+                <label for="notes">Notes</label>
+                <textarea id="notes" rows="3" placeholder="Any additional notes about this skill performance"></textarea>
+              </div>
+              <button type="submit" class="btn-success">Submit</button>
+            </form>
+          </div>
+        </div>
+        
+        <script>
+          // Global variables
+          let skillsData = [];
+          let categoriesMap = {};
+          
+          // Fetch categories and skills when page loads
+          function loadSkills() {
+            fetch('/api/skills')
+              .then(response => response.json())
+              .then(data => {
+                skillsData = data.skills;
+                categoriesMap = data.categories;
+                renderSkillsTable();
+                populateSkillsDropdown();
+              })
+              .catch(error => {
+                console.error('Error fetching skills:', error);
+                document.getElementById('skillsContainer').innerHTML = 
+                  '<p>Error loading skills. Please try again later.</p>';
+              });
+          }
+          
+          // Render the skills table with progress
+          function renderSkillsTable() {
+            const container = document.getElementById('skillsContainer');
+            
+            if (!skillsData || skillsData.length === 0) {
+              container.innerHTML = '<p>No skills found for your certification level.</p>';
+              return;
+            }
+            
+            // Group skills by category
+            const groupedSkills = {};
+            skillsData.forEach(skill => {
+              const categoryId = skill.category_id;
+              if (!groupedSkills[categoryId]) {
+                groupedSkills[categoryId] = [];
+              }
+              groupedSkills[categoryId].push(skill);
+            });
+            
+            // Create table
+            let html = '<table>';
+            html += '<thead><tr><th>Skill Name</th><th>Progress</th><th>Status</th></tr></thead><tbody>';
+            
+            // Add rows for each category and its skills
+            Object.keys(groupedSkills).forEach(categoryId => {
+              const categoryName = categoriesMap[categoryId] || 'Uncategorized';
+              
+              // Add category header
+              html += \`<tr class="skill-category"><td colspan="3">\${categoryName}</td></tr>\`;
+              
+              // Add skills in this category
+              groupedSkills[categoryId].forEach(skill => {
+                const completed = skill.completions || 0;
+                const required = skill.repetitions_required || 1;
+                const progressPercent = Math.min(100, Math.round((completed / required) * 100));
+                const status = completed >= required ? 'Complete' : \`\${completed}/\${required}\`;
+                
+                html += '<tr>';
+                html += \`<td>\${skill.skill_name}</td>\`;
+                html += '<td><div class="progress-bar-container">';
+                html += \`<div class="progress-bar" style="width: \${progressPercent}%"></div></div></td>\`;
+                html += \`<td>\${status}</td>\`;
+                html += '</tr>';
+              });
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+          }
+          
+          // Populate skills dropdown in the modal
+          function populateSkillsDropdown() {
+            const select = document.getElementById('skillSelect');
+            select.innerHTML = '';
+            
+            // Group skills by category for the dropdown
+            const groupedSkills = {};
+            skillsData.forEach(skill => {
+              const categoryId = skill.category_id;
+              if (!groupedSkills[categoryId]) {
+                groupedSkills[categoryId] = [];
+              }
+              groupedSkills[categoryId].push(skill);
+            });
+            
+            // Add skills to dropdown with optgroup for categories
+            Object.keys(groupedSkills).forEach(categoryId => {
+              const categoryName = categoriesMap[categoryId] || 'Uncategorized';
+              const optgroup = document.createElement('optgroup');
+              optgroup.label = categoryName;
+              
+              groupedSkills[categoryId].forEach(skill => {
+                const option = document.createElement('option');
+                option.value = skill.skill_id;
+                option.textContent = skill.skill_name;
+                optgroup.appendChild(option);
+              });
+              
+              select.appendChild(optgroup);
+            });
+          }
+          
+          // Modal handling
+          const modal = document.getElementById('logSkillModal');
+          const btn = document.getElementById('logSkillBtn');
+          const span = document.getElementsByClassName('close')[0];
+          
+          btn.onclick = function() {
+            modal.style.display = 'block';
+          }
+          
+          span.onclick = function() {
+            modal.style.display = 'none';
+          }
+          
+          window.onclick = function(event) {
+            if (event.target === modal) {
+              modal.style.display = 'none';
+            }
+          }
+          
+          // Handle skill logging form submission
+          document.getElementById('logSkillForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const skillData = {
+              skillId: document.getElementById('skillSelect').value,
+              location: document.getElementById('location').value,
+              notes: document.getElementById('notes').value
+            };
+            
+            try {
+              const response = await fetch('/api/skills/log', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(skillData)
+              });
+              
+              const data = await response.json();
+              
+              if (!response.ok) {
+                throw new Error(data.error || 'Failed to log skill');
+              }
+              
+              // Close modal and reload skills
+              modal.style.display = 'none';
+              document.getElementById('logSkillForm').reset();
+              loadSkills();
+              
+            } catch (error) {
+              alert('Error logging skill: ' + error.message);
+            }
+          });
+          
+          // Logout functionality
+          document.getElementById('logoutButton').addEventListener('click', async (e) => {
+            e.preventDefault();
+            
+            try {
+              await fetch('/api/logout', { method: 'POST' });
+              window.location.href = '/login';
+            } catch (error) {
+              console.error('Logout error:', error);
+            }
+          });
+          
+          // Load skills when page loads
+          loadSkills();
         </script>
       </body>
     </html>
@@ -351,6 +639,216 @@ app.get('/api/me', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error fetching user data:', error);
     res.status(500).json({ error: 'Failed to fetch user data' });
+  } finally {
+    if (client) await client.end();
+  }
+});
+
+// Get skills for student's certification level
+app.get('/api/skills', authMiddleware, async (req, res) => {
+  let client;
+  try {
+    client = await connectToDb();
+    
+    // Get student's certification level
+    let certLevelId;
+    
+    if (req.user.role === 'student') {
+      const studentResult = await client.query(
+        'SELECT certification_level_id FROM students WHERE student_id = $1',
+        [req.user.userId]
+      );
+      
+      if (studentResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Student record not found' });
+      }
+      
+      certLevelId = studentResult.rows[0].certification_level_id;
+    } else {
+      // For non-students, default to EMT level
+      const certResult = await client.query(
+        'SELECT level_id FROM certification_levels WHERE level_name = $1',
+        ['EMT']
+      );
+      
+      certLevelId = certResult.rows[0].level_id;
+    }
+    
+    // Get skills for this certification level
+    const skillsResult = await client.query(`
+      SELECT s.skill_id, s.skill_name, s.category_id, s.description, cs.repetitions_required
+      FROM skills s
+      JOIN certification_skills cs ON s.skill_id = cs.skill_id
+      WHERE cs.certification_level_id = $1 AND cs.is_active = true
+      ORDER BY s.category_id, s.skill_name
+    `, [certLevelId]);
+    
+    // Get skill categories
+    const categoriesResult = await client.query(
+      'SELECT category_id, category_name FROM skill_categories'
+    );
+    
+    // Create categories map
+    const categories = {};
+    categoriesResult.rows.forEach(cat => {
+      categories[cat.category_id] = cat.category_name;
+    });
+    
+    // If student, get their skill completions
+    if (req.user.role === 'student') {
+      const completionsResult = await client.query(`
+        SELECT skill_id, COUNT(*) as count
+        FROM student_skills
+        WHERE student_id = $1 AND is_successful = true
+        GROUP BY skill_id
+      `, [req.user.userId]);
+      
+      // Create completions map
+      const completions = {};
+      completionsResult.rows.forEach(comp => {
+        completions[comp.skill_id] = parseInt(comp.count);
+      });
+      
+      // Add completion counts to skills
+      skillsResult.rows.forEach(skill => {
+        skill.completions = completions[skill.skill_id] || 0;
+      });
+    }
+    
+    res.json({
+      skills: skillsResult.rows,
+      categories
+    });
+    
+  } catch (error) {
+    console.error('Error fetching skills:', error);
+    res.status(500).json({ error: 'Failed to fetch skills' });
+  } finally {
+    if (client) await client.end();
+  }
+});
+
+// Log a skill completion
+app.post('/api/skills/log', authMiddleware, async (req, res) => {
+  // Only students can log skills
+  if (req.user.role !== 'student') {
+    return res.status(403).json({ error: 'Only students can log skills' });
+  }
+  
+  const { skillId, location, notes } = req.body;
+  
+  if (!skillId) {
+    return res.status(400).json({ error: 'Skill ID is required' });
+  }
+  
+  let client;
+  try {
+    client = await connectToDb();
+    
+    // Check if skill exists and is required for student's certification level
+    const student = await client.query(
+      'SELECT certification_level_id FROM students WHERE student_id = $1',
+      [req.user.userId]
+    );
+    
+    if (student.rows.length === 0) {
+      return res.status(404).json({ error: 'Student record not found' });
+    }
+    
+    const certLevelId = student.rows[0].certification_level_id;
+    
+    const skillCheck = await client.query(
+      `SELECT 1 FROM certification_skills 
+       WHERE certification_level_id = $1 AND skill_id = $2 AND is_active = true`,
+      [certLevelId, skillId]
+    );
+    
+    if (skillCheck.rows.length === 0) {
+      return res.status(400).json({ error: 'Skill is not required for your certification level' });
+    }
+    
+    // Insert skill completion
+    await client.query(
+      `INSERT INTO student_skills 
+       (student_id, skill_id, location, notes, is_successful)
+       VALUES ($1, $2, $3, $4, true)`,
+      [req.user.userId, skillId, location, notes]
+    );
+    
+    res.json({ success: true, message: 'Skill logged successfully' });
+    
+  } catch (error) {
+    console.error('Error logging skill:', error);
+    res.status(500).json({ error: 'Failed to log skill' });
+  } finally {
+    if (client) await client.end();
+  }
+});
+
+// Get skill progress
+app.get('/api/skills/progress', authMiddleware, async (req, res) => {
+  // Only students have skills progress
+  if (req.user.role !== 'student') {
+    return res.json({ completed: 0, total: 0, percentage: 0 });
+  }
+  
+  let client;
+  try {
+    client = await connectToDb();
+    
+    // Get student's certification level
+    const studentResult = await client.query(
+      'SELECT certification_level_id FROM students WHERE student_id = $1',
+      [req.user.userId]
+    );
+    
+    if (studentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Student record not found' });
+    }
+    
+    const certLevelId = studentResult.rows[0].certification_level_id;
+    
+    // Get total required skills
+    const totalResult = await client.query(
+      `SELECT COUNT(*) as count
+       FROM certification_skills
+       WHERE certification_level_id = $1 AND is_required = true AND is_active = true`,
+      [certLevelId]
+    );
+    
+    const total = parseInt(totalResult.rows[0].count);
+    
+    // Get completed skills
+    const completedResult = await client.query(`
+      WITH required_skills AS (
+        SELECT cs.skill_id, cs.repetitions_required
+        FROM certification_skills cs
+        WHERE cs.certification_level_id = $1 AND cs.is_required = true AND cs.is_active = true
+      ),
+      student_completions AS (
+        SELECT ss.skill_id, COUNT(*) as completions
+        FROM student_skills ss
+        WHERE ss.student_id = $2 AND ss.is_successful = true
+        GROUP BY ss.skill_id
+      )
+      SELECT COUNT(*) as count
+      FROM required_skills rs
+      LEFT JOIN student_completions sc ON rs.skill_id = sc.skill_id
+      WHERE COALESCE(sc.completions, 0) >= rs.repetitions_required
+    `, [certLevelId, req.user.userId]);
+    
+    const completed = parseInt(completedResult.rows[0].count);
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+    
+    res.json({
+      completed,
+      total,
+      percentage
+    });
+    
+  } catch (error) {
+    console.error('Error fetching skills progress:', error);
+    res.status(500).json({ error: 'Failed to fetch skills progress' });
   } finally {
     if (client) await client.end();
   }
@@ -866,6 +1364,53 @@ app.get('/setup-db', async (req, res) => {
           (${categoryMap['Trauma']}, 'Splinting', 'Properly apply splints to suspected fractures');
       `);
       console.log('Inserted sample skills');
+    }
+
+    // Link skills to certification levels if empty
+    const certSkillsCheck = await client.query('SELECT COUNT(*) FROM certification_skills');
+    if (parseInt(certSkillsCheck.rows[0].count) === 0) {
+      // Get certification level IDs
+      const levels = await client.query('SELECT level_id, level_name FROM certification_levels');
+      const levelMap = {};
+      
+      // Create a map of level name to ID
+      levels.rows.forEach(level => {
+        levelMap[level.level_name] = level.level_id;
+      });
+      
+      // Get all skills
+      const skills = await client.query('SELECT skill_id, skill_name, category_id FROM skills');
+      
+      // Add all skills to EMT level (repetitions vary by skill)
+      for (const skill of skills.rows) {
+        // Determine repetitions required based on category
+        let repetitions = 3; // Default
+        
+        // Set different repetitions by category
+        if (skill.category_id === categoryMap['Assessment']) {
+          repetitions = 5; // Assessment skills need more practice
+        } else if (skill.category_id === categoryMap['Circulation']) {
+          repetitions = 4; // Circulation skills
+        }
+        
+        // Add skill to EMT certification
+        await client.query(`
+          INSERT INTO certification_skills 
+          (certification_level_id, skill_id, repetitions_required, is_required, is_active)
+          VALUES ($1, $2, $3, true, true)
+        `, [levelMap['EMT'], skill.skill_id, repetitions]);
+        
+        // Add a subset of skills to EMR (basic skills only)
+        if (['Vital Signs', 'CPR', 'Bleeding Control', 'Bandaging'].includes(skill.skill_name)) {
+          await client.query(`
+            INSERT INTO certification_skills 
+            (certification_level_id, skill_id, repetitions_required, is_required, is_active)
+            VALUES ($1, $2, $3, true, true)
+          `, [levelMap['EMR'], skill.skill_id, 2]); // EMR needs fewer repetitions
+        }
+      }
+      
+      console.log('Linked skills to certification levels');
     }
 
     // Insert system configuration if empty
