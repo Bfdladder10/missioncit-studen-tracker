@@ -816,4 +816,158 @@ app.get('/setup-db', async (req, res) => {
           ('EMR', 'Emergency Medical Responder'),
           ('EMT', 'Emergency Medical Technician'),
           ('AEMT', 'Advanced Emergency Medical Technician'),
-          ('Paramedic',
+          ('Paramedic', 'Paramedic');
+      `);
+      console.log('Inserted certification levels');
+    }
+    
+    // Check if skill_categories is empty
+    const skillCategoriesCheck = await client.query('SELECT COUNT(*) FROM skill_categories');
+    if (parseInt(skillCategoriesCheck.rows[0].count) === 0) {
+      // Insert skill categories
+      await client.query(`
+        INSERT INTO skill_categories (category_name, description)
+        VALUES
+          ('Airway', 'Airway management skills'),
+          ('Assessment', 'Patient assessment skills'),
+          ('Circulation', 'Circulatory support skills'),
+          ('Medical', 'Medical emergency skills'),
+          ('Trauma', 'Trauma management skills');
+      `);
+      console.log('Inserted skill categories');
+    }
+
+    // Insert some sample skills if skills table is empty
+    const skillsCheck = await client.query('SELECT COUNT(*) FROM skills');
+    if (parseInt(skillsCheck.rows[0].count) === 0) {
+      // Get category IDs
+      const categories = await client.query('SELECT category_id, category_name FROM skill_categories');
+      const categoryMap = {};
+      
+      // Create a map of category name to ID
+      categories.rows.forEach(cat => {
+        categoryMap[cat.category_name] = cat.category_id;
+      });
+      
+      // Insert skills
+      await client.query(`
+        INSERT INTO skills (category_id, skill_name, description)
+        VALUES
+          (${categoryMap['Airway']}, 'Oral Airway Insertion', 'Properly insert an oropharyngeal airway'),
+          (${categoryMap['Airway']}, 'Bag-Valve-Mask', 'Properly ventilate a patient using a BVM'),
+          (${categoryMap['Airway']}, 'Suctioning', 'Properly suction a patient airway'),
+          (${categoryMap['Assessment']}, 'Vital Signs', 'Properly assess patient vital signs'),
+          (${categoryMap['Assessment']}, 'Patient History', 'Properly obtain a comprehensive patient history'),
+          (${categoryMap['Circulation']}, 'CPR', 'Properly perform CPR on an adult patient'),
+          (${categoryMap['Circulation']}, 'Bleeding Control', 'Properly control external bleeding'),
+          (${categoryMap['Circulation']}, 'Tourniquet Application', 'Properly apply a tourniquet to control bleeding'),
+          (${categoryMap['Medical']}, 'Medication Administration', 'Properly administer medications per protocol'),
+          (${categoryMap['Trauma']}, 'Bandaging', 'Properly apply bandages to wounds'),
+          (${categoryMap['Trauma']}, 'Splinting', 'Properly apply splints to suspected fractures');
+      `);
+      console.log('Inserted sample skills');
+    }
+
+    // Insert system configuration if empty
+    const configCheck = await client.query('SELECT COUNT(*) FROM system_config');
+    if (parseInt(configCheck.rows[0].count) === 0) {
+      // Get certification level IDs
+      const levels = await client.query('SELECT level_id, level_name FROM certification_levels');
+      const levelMap = {};
+      
+      // Create a map of level name to ID
+      levels.rows.forEach(level => {
+        levelMap[level.level_name] = level.level_id;
+      });
+      
+      // Insert configuration
+      await client.query(`
+        INSERT INTO system_config (certification_level_id, feature_key, feature_value)
+        VALUES
+          (${levelMap['EMR']}, 'enable_clinical_hours_tracking', 'false'),
+          (${levelMap['EMR']}, 'enable_patient_contacts_tracking', 'true'),
+          (${levelMap['EMT']}, 'enable_clinical_hours_tracking', 'false'),
+          (${levelMap['EMT']}, 'enable_patient_contacts_tracking', 'true'),
+          (${levelMap['AEMT']}, 'enable_clinical_hours_tracking', 'true'),
+          (${levelMap['AEMT']}, 'enable_patient_contacts_tracking', 'true'),
+          (${levelMap['Paramedic']}, 'enable_clinical_hours_tracking', 'true'),
+          (${levelMap['Paramedic']}, 'enable_patient_contacts_tracking', 'true');
+      `);
+      console.log('Inserted system configuration');
+    }
+    
+    // Commit transaction
+    await client.query('COMMIT');
+    
+    res.send(`
+      <html>
+        <head>
+          <title>Database Setup</title>
+          <style>
+            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+            h1 { color: #c57100; }
+            .success { color: green; }
+            ul { line-height: 1.6; }
+          </style>
+        </head>
+        <body>
+          <h1>Database Setup</h1>
+          <p class="success">Database tables created successfully!</p>
+          <p>The following tables were created:</p>
+          <ul>
+            <li>users</li>
+            <li>certification_levels</li>
+            <li>students</li>
+            <li>skill_categories</li>
+            <li>skills</li>
+            <li>certification_skills</li>
+            <li>student_skills</li>
+            <li>clinical_locations</li>
+            <li>clinical_opportunities</li>
+            <li>student_preferences</li>
+            <li>student_clinicals</li>
+            <li>patient_contacts</li>
+            <li>patient_interventions</li>
+            <li>system_config</li>
+          </ul>
+          <p>Initial data for certification levels, skill categories, sample skills, and system configuration has been inserted.</p>
+          <p><a href="/">Back to home</a></p>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    // Rollback transaction on error
+    if (client) {
+      await client.query('ROLLBACK');
+    }
+    
+    console.error('Error setting up database:', error);
+    
+    res.status(500).send(`
+      <html>
+        <head>
+          <title>Database Setup Error</title>
+          <style>
+            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+            h1 { color: #c57100; }
+            .error { color: red; }
+          </style>
+        </head>
+        <body>
+          <h1>Database Setup Error</h1>
+          <p class="error">Error: ${error.message}</p>
+          <p><a href="/">Back to home</a></p>
+        </body>
+      </html>
+    `);
+  } finally {
+    if (client) {
+      await client.end();
+    }
+  }
+});
+
+// Start the server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
