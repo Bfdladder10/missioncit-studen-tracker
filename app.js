@@ -264,3 +264,117 @@ app.get('/setup-db', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+-- Mapping between certification levels and required skills
+CREATE TABLE IF NOT EXISTS certification_skills (
+  cert_skill_id SERIAL PRIMARY KEY,
+  certification_level_id INTEGER REFERENCES certification_levels(level_id),
+  skill_id INTEGER REFERENCES skills(skill_id),
+  repetitions_required INTEGER DEFAULT 1,
+  is_required BOOLEAN DEFAULT TRUE,
+  is_active BOOLEAN DEFAULT TRUE,
+  UNIQUE(certification_level_id, skill_id)
+);
+
+-- Student skill completions
+CREATE TABLE IF NOT EXISTS student_skills (
+  completion_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  student_id UUID REFERENCES students(student_id),
+  skill_id INTEGER REFERENCES skills(skill_id),
+  completion_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  location VARCHAR(255),
+  notes TEXT,
+  verified_by UUID REFERENCES users(user_id),
+  verified_at TIMESTAMP,
+  is_successful BOOLEAN DEFAULT TRUE
+);
+
+-- Clinical locations
+CREATE TABLE IF NOT EXISTS clinical_locations (
+  location_id SERIAL PRIMARY KEY,
+  location_name VARCHAR(255) NOT NULL,
+  address TEXT,
+  city VARCHAR(100),
+  state VARCHAR(50),
+  zip VARCHAR(20),
+  phone VARCHAR(20),
+  contact_person VARCHAR(100),
+  notes TEXT,
+  is_active BOOLEAN DEFAULT TRUE
+);
+
+-- Clinical opportunities (available slots)
+CREATE TABLE IF NOT EXISTS clinical_opportunities (
+  opportunity_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  location_id INTEGER REFERENCES clinical_locations(location_id),
+  certification_level_id INTEGER REFERENCES certification_levels(level_id),
+  start_datetime TIMESTAMP NOT NULL,
+  end_datetime TIMESTAMP NOT NULL,
+  slots_available INTEGER DEFAULT 1,
+  created_by UUID REFERENCES users(user_id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  notes TEXT
+);
+
+-- Student clinical preferences
+CREATE TABLE IF NOT EXISTS student_preferences (
+  preference_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  student_id UUID REFERENCES students(student_id),
+  opportunity_id UUID REFERENCES clinical_opportunities(opportunity_id),
+  preference_rank INTEGER NOT NULL, -- 1 = first choice, 2 = second choice, etc.
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(student_id, opportunity_id)
+);
+
+-- Student clinical assignments
+CREATE TABLE IF NOT EXISTS student_clinicals (
+  assignment_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  student_id UUID REFERENCES students(student_id),
+  opportunity_id UUID REFERENCES clinical_opportunities(opportunity_id),
+  status VARCHAR(20) DEFAULT 'scheduled', -- 'scheduled', 'completed', 'missed', 'canceled'
+  assigned_by UUID REFERENCES users(user_id),
+  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  notes TEXT,
+  hours_completed DECIMAL(5,2),
+  UNIQUE(student_id, opportunity_id)
+);
+
+-- Patient contacts
+CREATE TABLE IF NOT EXISTS patient_contacts (
+  contact_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  student_id UUID REFERENCES students(student_id),
+  clinical_id UUID REFERENCES student_clinicals(assignment_id),
+  contact_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  patient_age INTEGER,
+  patient_gender VARCHAR(10),
+  chief_complaint TEXT,
+  -- Vitals
+  bp_systolic INTEGER,
+  bp_diastolic INTEGER,
+  heart_rate INTEGER,
+  respiratory_rate INTEGER,
+  spo2 DECIMAL(5,2),
+  temperature DECIMAL(5,2),
+  -- No identifiable patient information stored
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Interventions performed during patient contacts
+CREATE TABLE IF NOT EXISTS patient_interventions (
+  intervention_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  contact_id UUID REFERENCES patient_contacts(contact_id),
+  skill_id INTEGER REFERENCES skills(skill_id),
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- System configuration (for enabling/disabling features by certification level)
+CREATE TABLE IF NOT EXISTS system_config (
+  config_id SERIAL PRIMARY KEY,
+  certification_level_id INTEGER REFERENCES certification_levels(level_id),
+  feature_key VARCHAR(100) NOT NULL,
+  feature_value TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(certification_level_id, feature_key)
+);
