@@ -1,4 +1,4 @@
-// Complete app.js file with authentication and skills tracking
+// Complete app.js file with authentication, skills tracking, and patient contacts
 const express = require('express');
 const { Client } = require('pg');
 const bcrypt = require('bcrypt');
@@ -332,22 +332,20 @@ app.get('/dashboard', authMiddleware, (req, res) => {
                 }
               })
               .catch(error => console.error('Error fetching skills data:', error));
-          } 
-
-          // Fetch patient contact stats for student
-if ('${req.user.role}' === 'student') {
-  fetch('/api/patients/stats')
-    .then(response => response.json())
-    .then(data => {
-      if (data.total !== undefined) {
-        document.getElementById('patientContacts').textContent = 
-          data.total + '/' + data.required;
-        document.getElementById('contactsPercentage').textContent = 
-          data.percentage + '%';
-      }
-    })
-    .catch(error => console.error('Error fetching patient data:', error));
-}
+              
+            // Fetch patient contact stats for student
+            fetch('/api/patients/stats')
+              .then(response => response.json())
+              .then(data => {
+                if (data.total !== undefined) {
+                  document.getElementById('patientContacts').textContent = 
+                    data.total + '/' + data.required;
+                  document.getElementById('contactsPercentage').textContent = 
+                    data.percentage + '%';
+                }
+              })
+              .catch(error => console.error('Error fetching patient data:', error));
+          }
           
           // Logout functionality
           document.getElementById('logoutButton').addEventListener('click', async (e) => {
@@ -621,6 +619,7 @@ app.get('/skills', authMiddleware, (req, res) => {
     </html>
   `);
 });
+
 // Patient Contacts Page (protected - student view)
 app.get('/patients', authMiddleware, (req, res) => {
   res.send(`
@@ -1174,8 +1173,66 @@ app.get('/api/skills/progress', authMiddleware, async (req, res) => {
   let client;
   try {
     client = await connectToDb();
+    
+    // Get student's certification level
+    const studentResult = await client.query(
+      'SELECT certification_level_id FROM students WHERE student_id = $1',
+      [req.user.userId]
+    );
+    
+    if (studentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Student record not found' });
+    }
+    
+    const certLevelId = studentResult.rows[0].certification_level_id;
+    
+    // Get total required skills
+    const totalResult = await client.query(
+      `SELECT COUNT(*) as count
+       FROM certification_skills
+       WHERE certification_level_id = $1 AND is_required = true AND is_active = true`,
+      [certLevelId]
+    );
+    
+    const total = parseInt(totalResult.rows[0].count);
+    
+    // Get completed skills
+    const completedResult = await client.query(`
+      WITH required_skills AS (
+        SELECT cs.skill_id, cs.repetitions_required
+        FROM certification_skills cs
+        WHERE cs.certification_level_id = $1 AND cs.is_required = true AND cs.is_active = true
+      ),
+      student_completions AS (
+        SELECT ss.skill_id, COUNT(*) as completions
+        FROM student_skills ss
+        WHERE ss.student_id = $2 AND ss.is_successful = true
+        GROUP BY ss.skill_id
+      )
+      SELECT COUNT(*) as count
+      FROM required_skills rs
+      LEFT JOIN student_completions sc ON rs.skill_id = sc.skill_id
+      WHERE COALESCE(sc.completions, 0) >= rs.repetitions_required
+    `, [certLevelId, req.user.userId]);
+    
+    const completed = parseInt(completedResult.rows[0].count);
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+    
+    res.json({
+      completed,
+      total,
+      percentage
+    });
+    
+  } catch (error) {
+    console.error('Error fetching skills progress:', error);
+    res.status(500).json({ error: 'Failed to fetch skills progress' });
+  } finally {
+    if (client) await client.end();
+  }
+});
 
-    // Get patient contacts for a student
+// Get patient contacts for a student
 app.get('/api/patients', authMiddleware, async (req, res) => {
   // Only students can access their patient contacts
   if (req.user.role !== 'student') {
@@ -1386,64 +1443,6 @@ app.get('/api/patients/stats', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error fetching patient contact stats:', error);
     res.status(500).json({ error: 'Failed to fetch patient contact stats' });
-  } finally {
-    if (client) await client.end();
-  }
-});
-    
-    // Get student's certification level
-    const studentResult = await client.query(
-      'SELECT certification_level_id FROM students WHERE student_id = $1',
-      [req.user.userId]
-    );
-    
-    if (studentResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Student record not found' });
-    }
-    
-    const certLevelId = studentResult.rows[0].certification_level_id;
-    
-    // Get total required skills
-    const totalResult = await client.query(
-      `SELECT COUNT(*) as count
-       FROM certification_skills
-       WHERE certification_level_id = $1 AND is_required = true AND is_active = true`,
-      [certLevelId]
-    );
-    
-    const total = parseInt(totalResult.rows[0].count);
-    
-    // Get completed skills
-    const completedResult = await client.query(`
-      WITH required_skills AS (
-        SELECT cs.skill_id, cs.repetitions_required
-        FROM certification_skills cs
-        WHERE cs.certification_level_id = $1 AND cs.is_required = true AND cs.is_active = true
-      ),
-      student_completions AS (
-        SELECT ss.skill_id, COUNT(*) as completions
-        FROM student_skills ss
-        WHERE ss.student_id = $2 AND ss.is_successful = true
-        GROUP BY ss.skill_id
-      )
-      SELECT COUNT(*) as count
-      FROM required_skills rs
-      LEFT JOIN student_completions sc ON rs.skill_id = sc.skill_id
-      WHERE COALESCE(sc.completions, 0) >= rs.repetitions_required
-    `, [certLevelId, req.user.userId]);
-    
-    const completed = parseInt(completedResult.rows[0].count);
-    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-    
-    res.json({
-      completed,
-      total,
-      percentage
-    });
-    
-  } catch (error) {
-    console.error('Error fetching skills progress:', error);
-    res.status(500).json({ error: 'Failed to fetch skills progress' });
   } finally {
     if (client) await client.end();
   }
@@ -1961,53 +1960,6 @@ app.get('/setup-db', async (req, res) => {
       console.log('Inserted sample skills');
     }
 
-    // Link skills to certification levels if empty
-    const certSkillsCheck = await client.query('SELECT COUNT(*) FROM certification_skills');
-    if (parseInt(certSkillsCheck.rows[0].count) === 0) {
-      // Get certification level IDs
-      const levels = await client.query('SELECT level_id, level_name FROM certification_levels');
-      const levelMap = {};
-      
-      // Create a map of level name to ID
-      levels.rows.forEach(level => {
-        levelMap[level.level_name] = level.level_id;
-      });
-      
-      // Get all skills
-      const skills = await client.query('SELECT skill_id, skill_name, category_id FROM skills');
-      
-      // Add all skills to EMT level (repetitions vary by skill)
-      for (const skill of skills.rows) {
-        // Determine repetitions required based on category
-        let repetitions = 3; // Default
-        
-        // Set different repetitions by category
-        if (skill.category_id === categoryMap['Assessment']) {
-          repetitions = 5; // Assessment skills need more practice
-        } else if (skill.category_id === categoryMap['Circulation']) {
-          repetitions = 4; // Circulation skills
-        }
-        
-        // Add skill to EMT certification
-        await client.query(`
-          INSERT INTO certification_skills 
-          (certification_level_id, skill_id, repetitions_required, is_required, is_active)
-          VALUES ($1, $2, $3, true, true)
-        `, [levelMap['EMT'], skill.skill_id, repetitions]);
-        
-        // Add a subset of skills to EMR (basic skills only)
-        if (['Vital Signs', 'CPR', 'Bleeding Control', 'Bandaging'].includes(skill.skill_name)) {
-          await client.query(`
-            INSERT INTO certification_skills 
-            (certification_level_id, skill_id, repetitions_required, is_required, is_active)
-            VALUES ($1, $2, $3, true, true)
-          `, [levelMap['EMR'], skill.skill_id, 2]); // EMR needs fewer repetitions
-        }
-      }
-      
-      console.log('Linked skills to certification levels');
-    }
-
     // Insert system configuration if empty
     const configCheck = await client.query('SELECT COUNT(*) FROM system_config');
     if (parseInt(configCheck.rows[0].count) === 0) {
@@ -2034,17 +1986,18 @@ app.get('/setup-db', async (req, res) => {
           (${levelMap['Paramedic']}, 'enable_patient_contacts_tracking', 'true');
       `);
       console.log('Inserted system configuration');
-        await client.query(`
-    INSERT INTO system_config (certification_level_id, feature_key, feature_value)
-    VALUES
-      (${levelMap['EMR']}, 'patient_contacts_required', '5'),
-      (${levelMap['EMT']}, 'patient_contacts_required', '10'),
-      (${levelMap['AEMT']}, 'patient_contacts_required', '15'),
-      (${levelMap['Paramedic']}, 'patient_contacts_required', '20')
-    ON CONFLICT (certification_level_id, feature_key) DO NOTHING;
-  `);
-  console.log('Inserted patient contact requirements');
-}
+      
+      // Add patient contact requirements for each level
+      await client.query(`
+        INSERT INTO system_config (certification_level_id, feature_key, feature_value)
+        VALUES
+          (${levelMap['EMR']}, 'patient_contacts_required', '5'),
+          (${levelMap['EMT']}, 'patient_contacts_required', '10'),
+          (${levelMap['AEMT']}, 'patient_contacts_required', '15'),
+          (${levelMap['Paramedic']}, 'patient_contacts_required', '20')
+        ON CONFLICT (certification_level_id, feature_key) DO NOTHING;
+      `);
+      console.log('Inserted patient contact requirements');
     }
     
     // Commit transaction
