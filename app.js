@@ -1,4 +1,4 @@
-// Complete application with database setup
+// Complete application with full database setup
 const express = require('express');
 const { Client } = require('pg');
 const app = express();
@@ -122,6 +122,7 @@ app.get('/setup-db', async (req, res) => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    console.log('Users table created');
     
     // Create certification_levels table
     await client.query(`
@@ -132,6 +133,7 @@ app.get('/setup-db', async (req, res) => {
         is_active BOOLEAN DEFAULT TRUE
       );
     `);
+    console.log('Certification levels table created');
     
     // Create students table
     await client.query(`
@@ -145,6 +147,7 @@ app.get('/setup-db', async (req, res) => {
         notes TEXT
       );
     `);
+    console.log('Students table created');
     
     // Create skill_categories table
     await client.query(`
@@ -154,6 +157,7 @@ app.get('/setup-db', async (req, res) => {
         description TEXT
       );
     `);
+    console.log('Skill categories table created');
     
     // Create skills table
     await client.query(`
@@ -165,6 +169,147 @@ app.get('/setup-db', async (req, res) => {
         is_active BOOLEAN DEFAULT TRUE
       );
     `);
+    console.log('Skills table created');
+
+    // Create certification_skills table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS certification_skills (
+        cert_skill_id SERIAL PRIMARY KEY,
+        certification_level_id INTEGER REFERENCES certification_levels(level_id),
+        skill_id INTEGER REFERENCES skills(skill_id),
+        repetitions_required INTEGER DEFAULT 1,
+        is_required BOOLEAN DEFAULT TRUE,
+        is_active BOOLEAN DEFAULT TRUE,
+        UNIQUE(certification_level_id, skill_id)
+      );
+    `);
+    console.log('Certification skills table created');
+    
+    // Create student_skills table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS student_skills (
+        completion_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        student_id UUID REFERENCES students(student_id),
+        skill_id INTEGER REFERENCES skills(skill_id),
+        completion_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        location VARCHAR(255),
+        notes TEXT,
+        verified_by UUID REFERENCES users(user_id),
+        verified_at TIMESTAMP,
+        is_successful BOOLEAN DEFAULT TRUE
+      );
+    `);
+    console.log('Student skills table created');
+    
+    // Create clinical_locations table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS clinical_locations (
+        location_id SERIAL PRIMARY KEY,
+        location_name VARCHAR(255) NOT NULL,
+        address TEXT,
+        city VARCHAR(100),
+        state VARCHAR(50),
+        zip VARCHAR(20),
+        phone VARCHAR(20),
+        contact_person VARCHAR(100),
+        notes TEXT,
+        is_active BOOLEAN DEFAULT TRUE
+      );
+    `);
+    console.log('Clinical locations table created');
+    
+    // Create clinical_opportunities table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS clinical_opportunities (
+        opportunity_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        location_id INTEGER REFERENCES clinical_locations(location_id),
+        certification_level_id INTEGER REFERENCES certification_levels(level_id),
+        start_datetime TIMESTAMP NOT NULL,
+        end_datetime TIMESTAMP NOT NULL,
+        slots_available INTEGER DEFAULT 1,
+        created_by UUID REFERENCES users(user_id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        notes TEXT
+      );
+    `);
+    console.log('Clinical opportunities table created');
+    
+    // Create student_preferences table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS student_preferences (
+        preference_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        student_id UUID REFERENCES students(student_id),
+        opportunity_id UUID REFERENCES clinical_opportunities(opportunity_id),
+        preference_rank INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(student_id, opportunity_id)
+      );
+    `);
+    console.log('Student preferences table created');
+    
+    // Create student_clinicals table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS student_clinicals (
+        assignment_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        student_id UUID REFERENCES students(student_id),
+        opportunity_id UUID REFERENCES clinical_opportunities(opportunity_id),
+        status VARCHAR(20) DEFAULT 'scheduled',
+        assigned_by UUID REFERENCES users(user_id),
+        assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        notes TEXT,
+        hours_completed DECIMAL(5,2),
+        UNIQUE(student_id, opportunity_id)
+      );
+    `);
+    console.log('Student clinicals table created');
+    
+    // Create patient_contacts table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS patient_contacts (
+        contact_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        student_id UUID REFERENCES students(student_id),
+        clinical_id UUID REFERENCES student_clinicals(assignment_id),
+        contact_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        patient_age INTEGER,
+        patient_gender VARCHAR(10),
+        chief_complaint TEXT,
+        bp_systolic INTEGER,
+        bp_diastolic INTEGER,
+        heart_rate INTEGER,
+        respiratory_rate INTEGER,
+        spo2 DECIMAL(5,2),
+        temperature DECIMAL(5,2),
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('Patient contacts table created');
+    
+    // Create patient_interventions table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS patient_interventions (
+        intervention_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        contact_id UUID REFERENCES patient_contacts(contact_id),
+        skill_id INTEGER REFERENCES skills(skill_id),
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('Patient interventions table created');
+    
+    // Create system_config table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS system_config (
+        config_id SERIAL PRIMARY KEY,
+        certification_level_id INTEGER REFERENCES certification_levels(level_id),
+        feature_key VARCHAR(100) NOT NULL,
+        feature_value TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(certification_level_id, feature_key)
+      );
+    `);
+    console.log('System config table created');
     
     // Insert initial data if tables are empty
     
@@ -198,6 +343,65 @@ app.get('/setup-db', async (req, res) => {
       `);
       console.log('Inserted skill categories');
     }
+
+    // Insert some sample skills if skills table is empty
+    const skillsCheck = await client.query('SELECT COUNT(*) FROM skills');
+    if (parseInt(skillsCheck.rows[0].count) === 0) {
+      // Get category IDs
+      const categories = await client.query('SELECT category_id, category_name FROM skill_categories');
+      const categoryMap = {};
+      
+      // Create a map of category name to ID
+      categories.rows.forEach(cat => {
+        categoryMap[cat.category_name] = cat.category_id;
+      });
+      
+      // Insert skills
+      await client.query(`
+        INSERT INTO skills (category_id, skill_name, description)
+        VALUES
+          (${categoryMap['Airway']}, 'Oral Airway Insertion', 'Properly insert an oropharyngeal airway'),
+          (${categoryMap['Airway']}, 'Bag-Valve-Mask', 'Properly ventilate a patient using a BVM'),
+          (${categoryMap['Airway']}, 'Suctioning', 'Properly suction a patient airway'),
+          (${categoryMap['Assessment']}, 'Vital Signs', 'Properly assess patient vital signs'),
+          (${categoryMap['Assessment']}, 'Patient History', 'Properly obtain a comprehensive patient history'),
+          (${categoryMap['Circulation']}, 'CPR', 'Properly perform CPR on an adult patient'),
+          (${categoryMap['Circulation']}, 'Bleeding Control', 'Properly control external bleeding'),
+          (${categoryMap['Circulation']}, 'Tourniquet Application', 'Properly apply a tourniquet to control bleeding'),
+          (${categoryMap['Medical']}, 'Medication Administration', 'Properly administer medications per protocol'),
+          (${categoryMap['Trauma']}, 'Bandaging', 'Properly apply bandages to wounds'),
+          (${categoryMap['Trauma']}, 'Splinting', 'Properly apply splints to suspected fractures');
+      `);
+      console.log('Inserted sample skills');
+    }
+
+    // Insert system configuration if empty
+    const configCheck = await client.query('SELECT COUNT(*) FROM system_config');
+    if (parseInt(configCheck.rows[0].count) === 0) {
+      // Get certification level IDs
+      const levels = await client.query('SELECT level_id, level_name FROM certification_levels');
+      const levelMap = {};
+      
+      // Create a map of level name to ID
+      levels.rows.forEach(level => {
+        levelMap[level.level_name] = level.level_id;
+      });
+      
+      // Insert configuration
+      await client.query(`
+        INSERT INTO system_config (certification_level_id, feature_key, feature_value)
+        VALUES
+          (${levelMap['EMR']}, 'enable_clinical_hours_tracking', 'false'),
+          (${levelMap['EMR']}, 'enable_patient_contacts_tracking', 'true'),
+          (${levelMap['EMT']}, 'enable_clinical_hours_tracking', 'false'),
+          (${levelMap['EMT']}, 'enable_patient_contacts_tracking', 'true'),
+          (${levelMap['AEMT']}, 'enable_clinical_hours_tracking', 'true'),
+          (${levelMap['AEMT']}, 'enable_patient_contacts_tracking', 'true'),
+          (${levelMap['Paramedic']}, 'enable_clinical_hours_tracking', 'true'),
+          (${levelMap['Paramedic']}, 'enable_patient_contacts_tracking', 'true');
+      `);
+      console.log('Inserted system configuration');
+    }
     
     // Commit transaction
     await client.query('COMMIT');
@@ -210,6 +414,7 @@ app.get('/setup-db', async (req, res) => {
             body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
             h1 { color: #c57100; }
             .success { color: green; }
+            ul { line-height: 1.6; }
           </style>
         </head>
         <body>
@@ -222,8 +427,17 @@ app.get('/setup-db', async (req, res) => {
             <li>students</li>
             <li>skill_categories</li>
             <li>skills</li>
+            <li>certification_skills</li>
+            <li>student_skills</li>
+            <li>clinical_locations</li>
+            <li>clinical_opportunities</li>
+            <li>student_preferences</li>
+            <li>student_clinicals</li>
+            <li>patient_contacts</li>
+            <li>patient_interventions</li>
+            <li>system_config</li>
           </ul>
-          <p>Initial data for certification levels and skill categories has been inserted.</p>
+          <p>Initial data for certification levels, skill categories, sample skills, and system configuration has been inserted.</p>
           <p><a href="/">Back to home</a></p>
         </body>
       </html>
@@ -264,117 +478,3 @@ app.get('/setup-db', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
--- Mapping between certification levels and required skills
-CREATE TABLE IF NOT EXISTS certification_skills (
-  cert_skill_id SERIAL PRIMARY KEY,
-  certification_level_id INTEGER REFERENCES certification_levels(level_id),
-  skill_id INTEGER REFERENCES skills(skill_id),
-  repetitions_required INTEGER DEFAULT 1,
-  is_required BOOLEAN DEFAULT TRUE,
-  is_active BOOLEAN DEFAULT TRUE,
-  UNIQUE(certification_level_id, skill_id)
-);
-
--- Student skill completions
-CREATE TABLE IF NOT EXISTS student_skills (
-  completion_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  student_id UUID REFERENCES students(student_id),
-  skill_id INTEGER REFERENCES skills(skill_id),
-  completion_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  location VARCHAR(255),
-  notes TEXT,
-  verified_by UUID REFERENCES users(user_id),
-  verified_at TIMESTAMP,
-  is_successful BOOLEAN DEFAULT TRUE
-);
-
--- Clinical locations
-CREATE TABLE IF NOT EXISTS clinical_locations (
-  location_id SERIAL PRIMARY KEY,
-  location_name VARCHAR(255) NOT NULL,
-  address TEXT,
-  city VARCHAR(100),
-  state VARCHAR(50),
-  zip VARCHAR(20),
-  phone VARCHAR(20),
-  contact_person VARCHAR(100),
-  notes TEXT,
-  is_active BOOLEAN DEFAULT TRUE
-);
-
--- Clinical opportunities (available slots)
-CREATE TABLE IF NOT EXISTS clinical_opportunities (
-  opportunity_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  location_id INTEGER REFERENCES clinical_locations(location_id),
-  certification_level_id INTEGER REFERENCES certification_levels(level_id),
-  start_datetime TIMESTAMP NOT NULL,
-  end_datetime TIMESTAMP NOT NULL,
-  slots_available INTEGER DEFAULT 1,
-  created_by UUID REFERENCES users(user_id),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  notes TEXT
-);
-
--- Student clinical preferences
-CREATE TABLE IF NOT EXISTS student_preferences (
-  preference_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  student_id UUID REFERENCES students(student_id),
-  opportunity_id UUID REFERENCES clinical_opportunities(opportunity_id),
-  preference_rank INTEGER NOT NULL, -- 1 = first choice, 2 = second choice, etc.
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(student_id, opportunity_id)
-);
-
--- Student clinical assignments
-CREATE TABLE IF NOT EXISTS student_clinicals (
-  assignment_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  student_id UUID REFERENCES students(student_id),
-  opportunity_id UUID REFERENCES clinical_opportunities(opportunity_id),
-  status VARCHAR(20) DEFAULT 'scheduled', -- 'scheduled', 'completed', 'missed', 'canceled'
-  assigned_by UUID REFERENCES users(user_id),
-  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  notes TEXT,
-  hours_completed DECIMAL(5,2),
-  UNIQUE(student_id, opportunity_id)
-);
-
--- Patient contacts
-CREATE TABLE IF NOT EXISTS patient_contacts (
-  contact_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  student_id UUID REFERENCES students(student_id),
-  clinical_id UUID REFERENCES student_clinicals(assignment_id),
-  contact_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  patient_age INTEGER,
-  patient_gender VARCHAR(10),
-  chief_complaint TEXT,
-  -- Vitals
-  bp_systolic INTEGER,
-  bp_diastolic INTEGER,
-  heart_rate INTEGER,
-  respiratory_rate INTEGER,
-  spo2 DECIMAL(5,2),
-  temperature DECIMAL(5,2),
-  -- No identifiable patient information stored
-  notes TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Interventions performed during patient contacts
-CREATE TABLE IF NOT EXISTS patient_interventions (
-  intervention_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  contact_id UUID REFERENCES patient_contacts(contact_id),
-  skill_id INTEGER REFERENCES skills(skill_id),
-  notes TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- System configuration (for enabling/disabling features by certification level)
-CREATE TABLE IF NOT EXISTS system_config (
-  config_id SERIAL PRIMARY KEY,
-  certification_level_id INTEGER REFERENCES certification_levels(level_id),
-  feature_key VARCHAR(100) NOT NULL,
-  feature_value TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(certification_level_id, feature_key)
-);
