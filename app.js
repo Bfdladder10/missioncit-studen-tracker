@@ -332,7 +332,22 @@ app.get('/dashboard', authMiddleware, (req, res) => {
                 }
               })
               .catch(error => console.error('Error fetching skills data:', error));
-          }
+          } 
+
+          // Fetch patient contact stats for student
+if ('${req.user.role}' === 'student') {
+  fetch('/api/patients/stats')
+    .then(response => response.json())
+    .then(data => {
+      if (data.total !== undefined) {
+        document.getElementById('patientContacts').textContent = 
+          data.total + '/' + data.required;
+        document.getElementById('contactsPercentage').textContent = 
+          data.percentage + '%';
+      }
+    })
+    .catch(error => console.error('Error fetching patient data:', error));
+}
           
           // Logout functionality
           document.getElementById('logoutButton').addEventListener('click', async (e) => {
