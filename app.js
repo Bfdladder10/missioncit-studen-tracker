@@ -606,6 +606,370 @@ app.get('/skills', authMiddleware, (req, res) => {
     </html>
   `);
 });
+// Patient Contacts Page (protected - student view)
+app.get('/patients', authMiddleware, (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <title>EMS Tracker - Patient Contacts</title>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+          h1, h2 { color: #c57100; }
+          .card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+          .button { display: inline-block; background: #c57100; color: white; padding: 10px 15px; 
+                    text-decoration: none; border-radius: 4px; margin-top: 15px; }
+          .navbar { background: #f9f9f9; padding: 10px; border-radius: 8px; margin-bottom: 20px; }
+          .navbar a { color: #333; text-decoration: none; padding: 8px 15px; display: inline-block; }
+          .navbar a:hover { background: #e9e9e9; border-radius: 4px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+          th { background-color: #f9f9f9; }
+          .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; 
+                   overflow: auto; background-color: rgba(0,0,0,0.4); }
+          .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; 
+                          border: 1px solid #888; width: 80%; max-width: 600px; border-radius: 8px; }
+          .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+          .close:hover { color: black; }
+          .form-group { margin-bottom: 15px; }
+          label { display: block; margin-bottom: 5px; }
+          input, select, textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+          .btn-success { background-color: #28a745; color: white; padding: 10px 15px; 
+                        border: none; border-radius: 4px; cursor: pointer; }
+          .tag { display: inline-block; background: #f0f0f0; padding: 3px 8px; 
+                border-radius: 4px; margin-right: 5px; margin-bottom: 5px; font-size: 12px; }
+          .row { display: flex; gap: 15px; }
+          .col { flex: 1; }
+          .contact-card { border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
+          .contact-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
+          .contact-date { color: #666; font-size: 14px; }
+          .contact-demo { background: #f9f9f9; padding: 8px; border-radius: 4px; display: inline-block; font-weight: bold; }
+          .contact-chief { color: #c57100; }
+        </style>
+      </head>
+      <body>
+        <div class="navbar">
+          <a href="/dashboard">Dashboard</a>
+          <a href="/skills">Skills</a>
+          <a href="/patients">Patient Contacts</a>
+          <a href="/clinicals">Clinicals</a>
+          <a href="#" id="logoutButton" style="float: right;">Logout</a>
+        </div>
+        
+        <h1>Patient Contacts</h1>
+        
+        <div class="card">
+          <h2>Your Patient Contacts</h2>
+          <p>Document your patient encounters and track your progress toward certification requirements.</p>
+          <button class="button" id="addContactBtn">Add New Patient Contact</button>
+        </div>
+        
+        <div id="contactsContainer">
+          <p>Loading patient contacts...</p>
+        </div>
+        
+        <!-- Modal for adding a new patient contact -->
+        <div id="addContactModal" class="modal">
+          <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Add Patient Contact</h2>
+            <form id="addContactForm">
+              <div class="row">
+                <div class="col">
+                  <div class="form-group">
+                    <label for="patientAge">Patient Age</label>
+                    <input type="number" id="patientAge" min="0" max="120" required>
+                  </div>
+                </div>
+                <div class="col">
+                  <div class="form-group">
+                    <label for="patientGender">Patient Gender</label>
+                    <select id="patientGender" required>
+                      <option value="">Select</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="form-group">
+                <label for="chiefComplaint">Chief Complaint</label>
+                <input type="text" id="chiefComplaint" required placeholder="Primary reason for seeking care">
+              </div>
+              
+              <h3>Vital Signs</h3>
+              <div class="row">
+                <div class="col">
+                  <div class="form-group">
+                    <label for="bpSystolic">BP Systolic</label>
+                    <input type="number" id="bpSystolic" min="60" max="300">
+                  </div>
+                </div>
+                <div class="col">
+                  <div class="form-group">
+                    <label for="bpDiastolic">BP Diastolic</label>
+                    <input type="number" id="bpDiastolic" min="30" max="200">
+                  </div>
+                </div>
+              </div>
+              
+              <div class="row">
+                <div class="col">
+                  <div class="form-group">
+                    <label for="heartRate">Heart Rate</label>
+                    <input type="number" id="heartRate" min="30" max="250">
+                  </div>
+                </div>
+                <div class="col">
+                  <div class="form-group">
+                    <label for="respRate">Respiratory Rate</label>
+                    <input type="number" id="respRate" min="4" max="60">
+                  </div>
+                </div>
+              </div>
+              
+              <div class="row">
+                <div class="col">
+                  <div class="form-group">
+                    <label for="spo2">SpO2 (%)</label>
+                    <input type="number" id="spo2" min="50" max="100" step="0.1">
+                  </div>
+                </div>
+                <div class="col">
+                  <div class="form-group">
+                    <label for="temperature">Temperature (°F)</label>
+                    <input type="number" id="temperature" min="93" max="108" step="0.1">
+                  </div>
+                </div>
+              </div>
+              
+              <div class="form-group">
+                <label for="interventions">Interventions Performed</label>
+                <div id="interventionsContainer">
+                  <p>Loading available skills...</p>
+                </div>
+              </div>
+              
+              <div class="form-group">
+                <label for="notes">Additional Notes</label>
+                <textarea id="notes" rows="3" placeholder="Additional details about the patient encounter"></textarea>
+              </div>
+              
+              <button type="submit" class="btn-success">Save Patient Contact</button>
+            </form>
+          </div>
+        </div>
+        
+        <script>
+          // Global variables
+          let patientContacts = [];
+          let availableSkills = [];
+          
+          // Fetch patient contacts when page loads
+          function loadPatientContacts() {
+            fetch('/api/patients')
+              .then(response => response.json())
+              .then(data => {
+                patientContacts = data.contacts;
+                renderPatientContacts();
+              })
+              .catch(error => {
+                console.error('Error fetching patient contacts:', error);
+                document.getElementById('contactsContainer').innerHTML = 
+                  '<p>Error loading patient contacts. Please try again later.</p>';
+              });
+          }
+          
+          // Fetch available skills for interventions
+          function loadAvailableSkills() {
+            fetch('/api/skills')
+              .then(response => response.json())
+              .then(data => {
+                availableSkills = data.skills;
+                renderInterventionsCheckboxes();
+              })
+              .catch(error => {
+                console.error('Error fetching skills:', error);
+                document.getElementById('interventionsContainer').innerHTML = 
+                  '<p>Error loading available skills. Please try again later.</p>';
+              });
+          }
+          
+          // Render patient contacts
+          function renderPatientContacts() {
+            const container = document.getElementById('contactsContainer');
+            
+            if (!patientContacts || patientContacts.length === 0) {
+              container.innerHTML = '<p>No patient contacts recorded yet.</p>';
+              return;
+            }
+            
+            let html = '';
+            
+            patientContacts.forEach(contact => {
+              const date = new Date(contact.contact_date).toLocaleDateString();
+              
+              html += '<div class="contact-card">';
+              html += '<div class="contact-header">';
+              html += '<span class="contact-demo">' + contact.patient_age + ' ' + contact.patient_gender.charAt(0) + '</span>';
+              html += '<span class="contact-date">' + date + '</span>';
+              html += '</div>';
+              html += '<div class="contact-chief">' + contact.chief_complaint + '</div>';
+              
+              // Vitals (if present)
+              if (contact.bp_systolic && contact.bp_diastolic) {
+                html += '<p>Vitals: BP ' + contact.bp_systolic + '/' + contact.bp_diastolic;
+                if (contact.heart_rate) html += ', HR ' + contact.heart_rate;
+                if (contact.respiratory_rate) html += ', RR ' + contact.respiratory_rate;
+                if (contact.spo2) html += ', SpO2 ' + contact.spo2 + '%';
+                html += '</p>';
+              }
+              
+              // Interventions
+              if (contact.interventions && contact.interventions.length > 0) {
+                html += '<p>Interventions: ';
+                contact.interventions.forEach(intervention => {
+                  html += '<span class="tag">' + intervention.skill_name + '</span>';
+                });
+                html += '</p>';
+              }
+              
+              if (contact.notes) {
+                html += '<p><small>' + contact.notes + '</small></p>';
+              }
+              
+              html += '</div>';
+            });
+            
+            container.innerHTML = html;
+          }
+          
+          // Render interventions checkboxes
+          function renderInterventionsCheckboxes() {
+            const container = document.getElementById('interventionsContainer');
+            
+            if (!availableSkills || availableSkills.length === 0) {
+              container.innerHTML = '<p>No skills available.</p>';
+              return;
+            }
+            
+            // Group skills by category
+            const groupedSkills = {};
+            availableSkills.forEach(skill => {
+              const categoryId = skill.category_id;
+              if (!groupedSkills[categoryId]) {
+                groupedSkills[categoryId] = [];
+              }
+              groupedSkills[categoryId].push(skill);
+            });
+            
+            let html = '';
+            
+            Object.keys(groupedSkills).forEach(categoryId => {
+              html += '<div class="skill-category">';
+              
+              groupedSkills[categoryId].forEach(skill => {
+                html += '<div class="checkbox-item">';
+                html += '<input type="checkbox" id="skill_' + skill.skill_id + '" value="' + skill.skill_id + '">';
+                html += '<label for="skill_' + skill.skill_id + '">' + skill.skill_name + '</label>';
+                html += '</div>';
+              });
+              
+              html += '</div>';
+            });
+            
+            container.innerHTML = html;
+          }
+          
+          // Modal handling
+          const modal = document.getElementById('addContactModal');
+          const btn = document.getElementById('addContactBtn');
+          const span = document.getElementsByClassName('close')[0];
+          
+          btn.onclick = function() {
+            modal.style.display = 'block';
+            loadAvailableSkills(); // Load skills when modal opens
+          }
+          
+          span.onclick = function() {
+            modal.style.display = 'none';
+          }
+          
+          window.onclick = function(event) {
+            if (event.target === modal) {
+              modal.style.display = 'none';
+            }
+          }
+          
+          // Handle patient contact form submission
+          document.getElementById('addContactForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // Get selected interventions
+            const selectedInterventions = [];
+            document.querySelectorAll('#interventionsContainer input[type="checkbox"]:checked').forEach(checkbox => {
+              selectedInterventions.push(checkbox.value);
+            });
+            
+            const contactData = {
+              patientAge: document.getElementById('patientAge').value,
+              patientGender: document.getElementById('patientGender').value,
+              chiefComplaint: document.getElementById('chiefComplaint').value,
+              bpSystolic: document.getElementById('bpSystolic').value || null,
+              bpDiastolic: document.getElementById('bpDiastolic').value || null,
+              heartRate: document.getElementById('heartRate').value || null,
+              respRate: document.getElementById('respRate').value || null,
+              spo2: document.getElementById('spo2').value || null,
+              temperature: document.getElementById('temperature').value || null,
+              interventions: selectedInterventions,
+              notes: document.getElementById('notes').value
+            };
+            
+            try {
+              const response = await fetch('/api/patients', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(contactData)
+              });
+              
+              const data = await response.json();
+              
+              if (!response.ok) {
+                throw new Error(data.error || 'Failed to add patient contact');
+              }
+              
+              // Close modal and reload patient contacts
+              modal.style.display = 'none';
+              document.getElementById('addContactForm').reset();
+              loadPatientContacts();
+              
+            } catch (error) {
+              alert('Error adding patient contact: ' + error.message);
+            }
+          });
+          
+          // Logout functionality
+          document.getElementById('logoutButton').addEventListener('click', async (e) => {
+            e.preventDefault();
+            
+            try {
+              await fetch('/api/logout', { method: 'POST' });
+              window.location.href = '/login';
+            } catch (error) {
+              console.error('Logout error:', error);
+            }
+          });
+          
+          // Load patient contacts when page loads
+          loadPatientContacts();
+        </script>
+      </body>
+    </html>
+  `);
+});
 
 // API Routes
 
