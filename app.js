@@ -2034,6 +2034,17 @@ app.get('/setup-db', async (req, res) => {
           (${levelMap['Paramedic']}, 'enable_patient_contacts_tracking', 'true');
       `);
       console.log('Inserted system configuration');
+        await client.query(`
+    INSERT INTO system_config (certification_level_id, feature_key, feature_value)
+    VALUES
+      (${levelMap['EMR']}, 'patient_contacts_required', '5'),
+      (${levelMap['EMT']}, 'patient_contacts_required', '10'),
+      (${levelMap['AEMT']}, 'patient_contacts_required', '15'),
+      (${levelMap['Paramedic']}, 'patient_contacts_required', '20')
+    ON CONFLICT (certification_level_id, feature_key) DO NOTHING;
+  `);
+  console.log('Inserted patient contact requirements');
+}
     }
     
     // Commit transaction
