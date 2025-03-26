@@ -50,7 +50,7 @@ async function updateSchedulingSchema() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS student_preferences (
         preference_id SERIAL PRIMARY KEY,
-        student_id INTEGER NOT NULL REFERENCES users(user_id),
+        student_id UUID NOT NULL REFERENCES users(user_id),
         slot_id INTEGER NOT NULL REFERENCES clinical_slots(slot_id),
         rank INTEGER NOT NULL CHECK (rank > 0),
         created_at TIMESTAMP DEFAULT NOW(),
@@ -63,9 +63,9 @@ async function updateSchedulingSchema() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS student_clinical_assignments (
         assignment_id SERIAL PRIMARY KEY,
-        student_id INTEGER NOT NULL REFERENCES users(user_id),
+        student_id UUID NOT NULL REFERENCES users(user_id),
         slot_id INTEGER NOT NULL REFERENCES clinical_slots(slot_id),
-        assigned_by INTEGER NOT NULL REFERENCES users(user_id),
+        assigned_by UUID NOT NULL REFERENCES users(user_id),
         notes TEXT,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW(),
@@ -96,7 +96,7 @@ async function updateSchedulingSchema() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS ride_time_logs (
         log_id SERIAL PRIMARY KEY,
-        student_id INTEGER NOT NULL REFERENCES users(user_id),
+        student_id UUID NOT NULL REFERENCES users(user_id),
         service_id INTEGER NOT NULL REFERENCES ambulance_services(service_id),
         date DATE NOT NULL,
         hours NUMERIC(4,2) NOT NULL CHECK (hours > 0),
