@@ -1,0 +1,365 @@
+<%- include('../partials/header.ejs', {title: 'Certification Levels', path: '/admin/certification-levels'}) %>
+
+<div class="admin-section">
+  <h1>Certification Levels Management</h1>
+  
+  <div class="admin-nav">
+    <a href="/admin/dashboard" class="admin-nav-item">Dashboard</a>
+    <a href="/admin/certification-levels" class="admin-nav-item active">Certification Levels</a>
+    <a href="/admin/skills" class="admin-nav-item">Skills</a>
+    <a href="/admin/students" class="admin-nav-item">Students</a>
+    <a href="/admin/clinical-sites" class="admin-nav-item">Clinical Sites</a>
+  </div>
+  
+  <div class="action-bar">
+    <button id="addLevelBtn" class="button">Add New Level</button>
+    <button id="importLevelsBtn" class="button">Import from CSV</button>
+  </div>
+  
+  <div class="levels-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Level Name</th>
+          <th>Description</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="levelsList">
+        <!-- Levels will be loaded dynamically -->
+      </tbody>
+    </table>
+  </div>
+  
+  <!-- Add Level Modal -->
+  <div id="addLevelModal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h2>Add Certification Level</h2>
+      <form id="addLevelForm">
+        <div class="form-group">
+          <label for="levelName">Level Name</label>
+          <input type="text" id="levelName" name="levelName" required>
+        </div>
+        <div class="form-group">
+          <label for="description">Description</label>
+          <textarea id="description" name="description" rows="3"></textarea>
+        </div>
+        <div class="form-group checkbox-group">
+          <label>
+            <input type="checkbox" id="isActive" name="isActive" checked>
+            Active
+          </label>
+        </div>
+        <button type="submit" class="button">Add Level</button>
+      </form>
+    </div>
+  </div>
+  
+  <!-- Edit Level Modal -->
+  <div id="editLevelModal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h2>Edit Certification Level</h2>
+      <form id="editLevelForm">
+        <input type="hidden" id="editLevelId">
+        <div class="form-group">
+          <label for="editLevelName">Level Name</label>
+          <input type="text" id="editLevelName" name="editLevelName" required>
+        </div>
+        <div class="form-group">
+          <label for="editDescription">Description</label>
+          <textarea id="editDescription" name="editDescription" rows="3"></textarea>
+        </div>
+        <div class="form-group checkbox-group">
+          <label>
+            <input type="checkbox" id="editIsActive" name="editIsActive">
+            Active
+          </label>
+        </div>
+        <button type="submit" class="button">Update Level</button>
+      </form>
+    </div>
+  </div>
+  
+  <!-- Import Levels Modal -->
+  <div id="importLevelsModal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <h2>Import Certification Levels</h2>
+      <p>Upload a CSV file with certification levels information.</p>
+      <p>The CSV should have the following columns: level_name, description, is_active</p>
+      <form id="importLevelsForm" enctype="multipart/form-data">
+        <div class="form-group">
+          <label for="csvFile">CSV File</label>
+          <input type="file" id="csvFile" name="csvFile" accept=".csv" required>
+        </div>
+        <div class="form-group checkbox-group">
+          <label>
+            <input type="checkbox" id="updateExisting" name="updateExisting">
+            Update existing levels
+          </label>
+        </div>
+        <button type="submit" class="button">Import</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Load certification levels when page loads
+  document.addEventListener('DOMContentLoaded', loadCertificationLevels);
+  
+  // Modal handling
+  const addModal = document.getElementById('addLevelModal');
+  const editModal = document.getElementById('editLevelModal');
+  const importModal = document.getElementById('importLevelsModal');
+  
+  const addBtn = document.getElementById('addLevelBtn');
+  const importBtn = document.getElementById('importLevelsBtn');
+  
+  const closeButtons = document.querySelectorAll('.close');
+  
+  // Show modal event listeners
+  addBtn.onclick = function() {
+    addModal.style.display = 'block';
+  }
+  
+  importBtn.onclick = function() {
+    importModal.style.display = 'block';
+  }
+  
+  // Close modal event listeners
+  closeButtons.forEach(btn => {
+    btn.onclick = function() {
+      addModal.style.display = 'none';
+      editModal.style.display = 'none';
+      importModal.style.display = 'none';
+    }
+  });
+  
+  // Close modals when clicking outside
+  window.onclick = function(event) {
+    if (event.target === addModal) {
+      addModal.style.display = 'none';
+    } else if (event.target === editModal) {
+      editModal.style.display = 'none';
+    } else if (event.target === importModal) {
+      importModal.style.display = 'none';
+    }
+  }
+  
+  // Load certification levels
+  async function loadCertificationLevels() {
+    try {
+      const response = await fetch('/api/admin/certification-levels');
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch certification levels');
+      }
+      
+      const levels = await response.json();
+      const levelsList = document.getElementById('levelsList');
+      levelsList.innerHTML = '';
+      
+      levels.forEach(level => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${level.level_id}</td>
+          <td>${level.level_name}</td>
+          <td>${level.description || '-'}</td>
+          <td><span class="status-badge ${level.is_active ? 'active' : 'inactive'}">${level.is_active ? 'Active' : 'Inactive'}</span></td>
+          <td class="actions">
+            <button class="action-btn edit-btn" data-id="${level.level_id}">Edit</button>
+            <button class="action-btn ${level.is_active ? 'deactivate-btn' : 'activate-btn'}" data-id="${level.level_id}">
+              ${level.is_active ? 'Deactivate' : 'Activate'}
+            </button>
+          </td>
+        `;
+        levelsList.appendChild(row);
+      });
+      
+      // Add event listeners to edit buttons
+      document.querySelectorAll('.edit-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const levelId = this.getAttribute('data-id');
+          openEditModal(levelId);
+        });
+      });
+      
+      // Add event listeners to toggle status buttons
+      document.querySelectorAll('.activate-btn, .deactivate-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const levelId = this.getAttribute('data-id');
+          toggleLevelStatus(levelId);
+        });
+      });
+      
+    } catch (error) {
+      console.error('Error loading certification levels:', error);
+      alert('Failed to load certification levels. Please try refreshing the page.');
+    }
+  }
+  
+  // Add new level submission
+  document.getElementById('addLevelForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const levelData = {
+      levelName: document.getElementById('levelName').value,
+      description: document.getElementById('description').value,
+      isActive: document.getElementById('isActive').checked
+    };
+    
+    try {
+      const response = await fetch('/api/admin/certification-levels/add', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(levelData)
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to add certification level');
+      }
+      
+      // Reset form and close modal
+      document.getElementById('addLevelForm').reset();
+      addModal.style.display = 'none';
+      
+      // Reload levels
+      loadCertificationLevels();
+      
+    } catch (error) {
+      console.error('Error adding certification level:', error);
+      alert(error.message);
+    }
+  });
+  
+  // Edit level modal
+  async function openEditModal(levelId) {
+    try {
+      const response = await fetch(`/api/admin/certification-levels/${levelId}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch certification level details');
+      }
+      
+      const level = await response.json();
+      
+      // Populate form
+      document.getElementById('editLevelId').value = level.level_id;
+      document.getElementById('editLevelName').value = level.level_name;
+      document.getElementById('editDescription').value = level.description || '';
+      document.getElementById('editIsActive').checked = level.is_active;
+      
+      // Show modal
+      editModal.style.display = 'block';
+      
+    } catch (error) {
+      console.error('Error fetching level details:', error);
+      alert('Failed to load level details. Please try again.');
+    }
+  }
+  
+  // Edit level submission
+  document.getElementById('editLevelForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const levelId = document.getElementById('editLevelId').value;
+    const levelData = {
+      levelName: document.getElementById('editLevelName').value,
+      description: document.getElementById('editDescription').value,
+      isActive: document.getElementById('editIsActive').checked
+    };
+    
+    try {
+      const response = await fetch(`/api/admin/certification-levels/${levelId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(levelData)
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update certification level');
+      }
+      
+      // Close modal
+      editModal.style.display = 'none';
+      
+      // Reload levels
+      loadCertificationLevels();
+      
+    } catch (error) {
+      console.error('Error updating certification level:', error);
+      alert(error.message);
+    }
+  });
+  
+  // Toggle level status
+  async function toggleLevelStatus(levelId) {
+    try {
+      const response = await fetch(`/api/admin/certification-levels/${levelId}/toggle-status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to toggle certification level status');
+      }
+      
+      // Reload levels
+      loadCertificationLevels();
+      
+    } catch (error) {
+      console.error('Error toggling level status:', error);
+      alert('Failed to update level status. Please try again.');
+    }
+  }
+  
+  // Import levels form submission
+  document.getElementById('importLevelsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = new FormData();
+    formData.append('csvFile', document.getElementById('csvFile').files[0]);
+    formData.append('updateExisting', document.getElementById('updateExisting').checked);
+    
+    try {
+      const response = await fetch('/api/admin/certification-levels/import', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to import certification levels');
+      }
+      
+      const result = await response.json();
+      
+      // Reset form and close modal
+      document.getElementById('importLevelsForm').reset();
+      importModal.style.display = 'none';
+      
+      // Reload levels and show success message
+      loadCertificationLevels();
+      alert(result.message);
+      
+    } catch (error) {
+      console.error('Error importing certification levels:', error);
+      alert(error.message);
+    }
+  });
+</script>
+
+<%- include('../partials/footer.ejs') %>

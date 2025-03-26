@@ -1,0 +1,68 @@
+<%- include('../partials/header.ejs', {title: 'Admin Dashboard', path: '/admin/dashboard'}) %>
+
+<div class="admin-dashboard">
+  <h1>EMS Program Administration</h1>
+  
+  <div class="admin-nav">
+    <a href="/admin/dashboard" class="admin-nav-item active">Dashboard</a>
+    <a href="/admin/certification-levels" class="admin-nav-item">Certification Levels</a>
+    <a href="/admin/skills" class="admin-nav-item">Skills</a>
+    <a href="/admin/students" class="admin-nav-item">Students</a>
+    <a href="/admin/clinical-sites" class="admin-nav-item">Clinical Sites</a>
+  </div>
+  
+  <div class="stats-container">
+    <div class="stats-card">
+      <h3>Students</h3>
+      <div class="stat-number" id="studentCount">-</div>
+    </div>
+    <div class="stats-card">
+      <h3>Certification Levels</h3>
+      <div class="stat-number" id="certificationLevelCount">-</div>
+    </div>
+    <div class="stats-card">
+      <h3>Skills</h3>
+      <div class="stat-number" id="skillCount">-</div>
+    </div>
+    <div class="stats-card">
+      <h3>Clinical Sites</h3>
+      <div class="stat-number" id="clinicalLocationCount">-</div>
+    </div>
+  </div>
+  
+  <div class="admin-actions">
+    <h2>Quick Actions</h2>
+    <div class="action-buttons">
+      <a href="/admin/certification-levels" class="button">Manage Certification Levels</a>
+      <a href="/admin/skills" class="button">Manage Skills</a>
+      <a href="/admin/students" class="button">Manage Students</a>
+      <a href="/admin/clinical-sites" class="button">Manage Clinical Sites</a>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Fetch admin statistics when page loads
+  document.addEventListener('DOMContentLoaded', async () => {
+    try {
+      const response = await fetch('/api/admin/stats');
+      if (!response.ok) {
+        throw new Error('Failed to fetch statistics');
+      }
+      
+      const stats = await response.json();
+      
+      // Update the dashboard with statistics
+      document.getElementById('studentCount').textContent = stats.studentCount;
+      document.getElementById('certificationLevelCount').textContent = stats.certificationLevelCount;
+      document.getElementById('skillCount').textContent = stats.skillCount;
+      document.getElementById('clinicalLocationCount').textContent = stats.clinicalLocationCount;
+      
+    } catch (error) {
+      console.error('Error fetching admin statistics:', error);
+      alert('Failed to load statistics. Please try refreshing the page.');
+    }
+  });
+</script>
+
+<%- include('../partials/footer.ejs') %>

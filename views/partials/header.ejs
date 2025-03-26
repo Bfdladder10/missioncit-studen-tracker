@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= title %> - EMS Tracker</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+    <header>
+        <nav class="navbar">
+            <a href="/dashboard" class="<%= path === '/dashboard' ? 'active' : '' %>">Dashboard</a>
+            <a href="/skills" class="<%= path === '/skills' ? 'active' : '' %>">Skills</a>
+            <a href="/patients" class="<%= path === '/patients' ? 'active' : '' %>">Patient Contacts</a>
+            <a href="/clinicals" class="<%= path === '/clinicals' ? 'active' : '' %>">Clinical Scheduling</a>
+            <% if (user && user.role === 'admin') { %>
+                <a href="/admin/dashboard" class="<%= path.startsWith('/admin') ? 'active' : '' %>">Admin</a>
+            <% } %>
+            <div class="user-info">
+                <span>Welcome, <%= user ? user.firstName : 'Guest' %></span>
+                <a href="/logout">Logout</a>
+            </div>
+        </nav>
+    </header>
+    <main class="container">

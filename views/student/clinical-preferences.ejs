@@ -1,0 +1,344 @@
+<%- include('../partials/header') %>
+
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar -->
+    <div class="col-md-2 d-none d-md-block bg-light sidebar">
+      <div class="sidebar-sticky">
+        <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+          <span>Student Navigation</span>
+        </h6>
+        <ul class="nav flex-column">
+          <li class="nav-item">
+            <a class="nav-link <%= path === '/student/dashboard' ? 'active' : '' %>" href="/student/dashboard">
+              <i class="fas fa-tachometer-alt"></i> Dashboard
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link <%= path === '/student/clinical-preferences' ? 'active' : '' %>" href="/student/clinical-preferences">
+              <i class="fas fa-calendar-alt"></i> Clinical Preferences
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link <%= path === '/student/clinical-assignments' ? 'active' : '' %>" href="/student/clinical-assignments">
+              <i class="fas fa-clipboard-list"></i> My Assignments
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link <%= path === '/student/ride-time' ? 'active' : '' %>" href="/student/ride-time">
+              <i class="fas fa-ambulance"></i> Ride Time Logs
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <main role="main" class="col-md-10 ml-sm-auto px-4">
+      <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+        <h1 class="h2">Clinical Slot Preferences</h1>
+      </div>
+
+      <div class="alert alert-info">
+        <i class="fas fa-info-circle"></i> Set your preferences for clinical slots by ranking them from 1 (highest preference) to 5 (lowest preference). 
+        Your preferences will be considered during slot assignment, but are not guaranteed. Slots with a lower number are more likely to be assigned to you.
+      </div>
+
+      <!-- Filter Controls -->
+      <div class="row mb-3">
+        <div class="col-md-3">
+          <label for="sitesFilter">Clinical Site:</label>
+          <select class="form-control" id="sitesFilter">
+            <option value="">All Sites</option>
+            <!-- Sites will be populated here -->
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label for="startDateFilter">Start Date:</label>
+          <input type="date" class="form-control" id="startDateFilter">
+        </div>
+        <div class="col-md-3">
+          <label for="endDateFilter">End Date:</label>
+          <input type="date" class="form-control" id="endDateFilter">
+        </div>
+        <div class="col-md-3 align-self-end">
+          <button type="button" class="btn btn-primary btn-block" id="btnFilterSlots">
+            <i class="fas fa-filter"></i> Filter
+          </button>
+        </div>
+      </div>
+
+      <!-- Available Slots Cards -->
+      <div class="row" id="availableSlotsContainer">
+        <!-- Slots will be loaded here -->
+        <div class="col-12 text-center py-3">
+          <div class="spinner-border text-primary" role="status">
+            <span class="sr-only">Loading...</span>
+          </div>
+          <p>Loading available clinical slots...</p>
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-between mt-3">
+        <button class="btn btn-secondary" id="btnPrevPage" disabled>Previous</button>
+        <span id="paginationInfo">Page 1 of 1</span>
+        <button class="btn btn-secondary" id="btnNextPage" disabled>Next</button>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Set Preference Modal -->
+<div class="modal fade" id="preferenceModal" tabindex="-1" role="dialog" aria-labelledby="preferenceModalLabel" aria-hidden="true">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="preferenceModalLabel">Set Preference</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div id="slotDetailsInModal"></div>
+        <hr>
+        <form id="preferenceForm">
+          <input type="hidden" id="preferenceSlotId">
+          <div class="form-group">
+            <label for="preferenceRank">Preference Rank*</label>
+            <select class="form-control" id="preferenceRank" required>
+              <option value="">Select your preference</option>
+              <option value="1">1 - Highest Preference</option>
+              <option value="2">2 - High Preference</option>
+              <option value="3">3 - Medium Preference</option>
+              <option value="4">4 - Low Preference</option>
+              <option value="5">5 - Lowest Preference</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" id="btnRemovePreference">Remove Preference</button>
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btnSavePreference">Save Preference</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+$(document).ready(function() {
+  // Initialize with current date values for next 30 days
+  const today = new Date();
+  const oneMonthLater = new Date(today);
+  oneMonthLater.setDate(today.getDate() + 30);
+  
+  // Format date to YYYY-MM-DD
+  const formatDate = (date) => {
+    const d = new Date(date);
+    let month = '' + (d.getMonth() + 1);
+    let day = '' + d.getDate();
+    const year = d.getFullYear();
+    
+    if (month.length < 2) month = '0' + month;
+    if (day.length < 2) day = '0' + day;
+    
+    return [year, month, day].join('-');
+  };
+  
+  $('#startDateFilter').val(formatDate(today));
+  $('#endDateFilter').val(formatDate(oneMonthLater));
+  
+  // Load clinical sites for filter dropdown
+  function loadClinicalSites() {
+    $.get('/api/clinical/sites/active', function(data) {
+      const sites = data.sites;
+      let siteOptions = '<option value="">All Sites</option>';
+      
+      sites.forEach(site => {
+        siteOptions += `<option value="${site.site_id}">${site.site_name}</option>`;
+      });
+      
+      $('#sitesFilter').html(siteOptions);
+    });
+  }
+  
+  // Load student's preferences
+  let userPreferences = [];
+  function loadStudentPreferences() {
+    $.get('/api/scheduling/preferences', function(data) {
+      userPreferences = data.preferences;
+    });
+  }
+  
+  // Load available clinical slots
+  function loadAvailableSlots() {
+    const siteId = $('#sitesFilter').val();
+    const startDate = $('#startDateFilter').val();
+    const endDate = $('#endDateFilter').val();
+    
+    let url = `/api/scheduling/slots?startDate=${startDate}&endDate=${endDate}`;
+    if (siteId) {
+      url += `&siteId=${siteId}`;
+    }
+    
+    $('#availableSlotsContainer').html(`
+      <div class="col-12 text-center py-3">
+        <div class="spinner-border text-primary" role="status">
+          <span class="sr-only">Loading...</span>
+        </div>
+        <p>Loading available clinical slots...</p>
+      </div>
+    `);
+    
+    $.get(url, function(data) {
+      const slots = data.slots;
+      let slotCards = '';
+      
+      if (slots.length === 0) {
+        $('#availableSlotsContainer').html('<div class="col-12 text-center py-3"><p>No clinical slots available for the selected criteria.</p></div>');
+        return;
+      }
+      
+      slots.forEach(slot => {
+        const date = new Date(slot.slot_date).toLocaleDateString();
+        const dow = new Date(slot.slot_date).toLocaleDateString('en-US', { weekday: 'long' });
+        const startTime = slot.start_time.substring(0, 5);
+        const endTime = slot.end_time.substring(0, 5);
+        const availableSpots = slot.max_students - (slot.assigned_count || 0);
+        
+        // Check if user has a preference for this slot
+        const preference = userPreferences.find(p => p.slot_id === slot.slot_id);
+        const preferenceClass = preference ? 'border-primary' : '';
+        const preferenceText = preference ? `<div class="mt-2 badge badge-primary">Your Preference: ${preference.rank}</div>` : '';
+        
+        const availableClass = availableSpots > 0 ? 'text-success' : 'text-danger';
+        const availableText = availableSpots > 0 ? `${availableSpots} spots available` : 'Full';
+        
+        slotCards += `
+          <div class="col-md-4 mb-4">
+            <div class="card ${preferenceClass}">
+              <div class="card-header">
+                <h5 class="mb-0">${slot.site_name}</h5>
+              </div>
+              <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">${dow}, ${date}</h6>
+                <p class="card-text">
+                  <i class="far fa-clock"></i> ${startTime} - ${endTime}<br>
+                  <i class="fas fa-user-md"></i> ${slot.preceptor_name || 'TBD'}<br>
+                  <i class="fas fa-users"></i> <span class="${availableClass}">${availableText}</span>
+                </p>
+                ${preferenceText}
+              </div>
+              <div class="card-footer">
+                <button class="btn btn-sm btn-outline-primary set-preference" data-id="${slot.slot_id}" 
+                  data-site="${slot.site_name}" data-date="${date}" data-time="${startTime} - ${endTime}">
+                  ${preference ? 'Change Preference' : 'Set Preference'}
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      
+      $('#availableSlotsContainer').html(slotCards);
+    });
+  }
+  
+  // Handle filter button click
+  $('#btnFilterSlots').click(function() {
+    loadAvailableSlots();
+  });
+  
+  // Initialize page
+  loadClinicalSites();
+  loadStudentPreferences();
+  loadAvailableSlots();
+  
+  // Set preference button click
+  $(document).on('click', '.set-preference', function() {
+    const slotId = $(this).data('id');
+    const siteName = $(this).data('site');
+    const date = $(this).data('date');
+    const time = $(this).data('time');
+    
+    // Display slot details in modal
+    $('#slotDetailsInModal').html(`
+      <p>
+        <strong>Site:</strong> ${siteName}<br>
+        <strong>Date:</strong> ${date}<br>
+        <strong>Time:</strong> ${time}
+      </p>
+    `);
+    
+    // Set slot ID in hidden field
+    $('#preferenceSlotId').val(slotId);
+    
+    // Check if user already has a preference for this slot
+    const preference = userPreferences.find(p => p.slot_id === slotId);
+    if (preference) {
+      $('#preferenceRank').val(preference.rank);
+      $('#btnRemovePreference').show();
+    } else {
+      $('#preferenceRank').val('');
+      $('#btnRemovePreference').hide();
+    }
+    
+    $('#preferenceModal').modal('show');
+  });
+  
+  // Save preference button click
+  $('#btnSavePreference').click(function() {
+    const slotId = $('#preferenceSlotId').val();
+    const rank = $('#preferenceRank').val();
+    
+    if (!rank) {
+      alert('Please select a preference rank');
+      return;
+    }
+    
+    $.ajax({
+      url: '/api/scheduling/preferences/set',
+      method: 'POST',
+      data: JSON.stringify({
+        slotId: slotId,
+        rank: rank
+      }),
+      contentType: 'application/json',
+      success: function(response) {
+        $('#preferenceModal').modal('hide');
+        loadStudentPreferences();
+        loadAvailableSlots();
+        alert('Preference saved successfully!');
+      },
+      error: function(xhr) {
+        alert('Error: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Failed to save preference'));
+      }
+    });
+  });
+  
+  // Remove preference button click
+  $('#btnRemovePreference').click(function() {
+    const slotId = $('#preferenceSlotId').val();
+    
+    $.ajax({
+      url: '/api/scheduling/preferences/delete',
+      method: 'POST',
+      data: JSON.stringify({
+        slotId: slotId
+      }),
+      contentType: 'application/json',
+      success: function(response) {
+        $('#preferenceModal').modal('hide');
+        loadStudentPreferences();
+        loadAvailableSlots();
+        alert('Preference removed successfully!');
+      },
+      error: function(xhr) {
+        alert('Error: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Failed to remove preference'));
+      }
+    });
+  });
+});
+</script>
+
+<%- include('../partials/footer') %>

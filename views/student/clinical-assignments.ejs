@@ -1,0 +1,264 @@
+<%- include('../partials/header') %>
+
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar -->
+    <div class="col-md-2 d-none d-md-block bg-light sidebar">
+      <div class="sidebar-sticky">
+        <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+          <span>Student Navigation</span>
+        </h6>
+        <ul class="nav flex-column">
+          <li class="nav-item">
+            <a class="nav-link <%= path === '/student/dashboard' ? 'active' : '' %>" href="/student/dashboard">
+              <i class="fas fa-tachometer-alt"></i> Dashboard
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link <%= path === '/student/clinical-preferences' ? 'active' : '' %>" href="/student/clinical-preferences">
+              <i class="fas fa-calendar-alt"></i> Clinical Preferences
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link <%= path === '/student/clinical-assignments' ? 'active' : '' %>" href="/student/clinical-assignments">
+              <i class="fas fa-clipboard-list"></i> My Assignments
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link <%= path === '/student/ride-time' ? 'active' : '' %>" href="/student/ride-time">
+              <i class="fas fa-ambulance"></i> Ride Time Logs
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <main role="main" class="col-md-10 ml-sm-auto px-4">
+      <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+        <h1 class="h2">My Clinical Assignments</h1>
+        <div class="btn-toolbar mb-2 mb-md-0">
+          <button type="button" class="btn btn-sm btn-outline-primary" id="btnPrintAssignments">
+            <i class="fas fa-print"></i> Print Assignments
+          </button>
+        </div>
+      </div>
+
+      <div class="alert alert-info">
+        <i class="fas fa-info-circle"></i> Your assigned clinical slots are listed below. Please arrive at least 15 minutes early and bring your student ID.
+        If you need to cancel, contact your instructor at least 24 hours in advance.
+      </div>
+
+      <!-- Filter Controls -->
+      <div class="row mb-3">
+        <div class="col-md-4">
+          <label for="assignmentDateFilter">Filter by Date:</label>
+          <select class="form-control" id="assignmentDateFilter">
+            <option value="upcoming">Upcoming Assignments</option>
+            <option value="past">Past Assignments</option>
+            <option value="all">All Assignments</option>
+          </select>
+        </div>
+        <div class="col-md-4 offset-md-4 text-right">
+          <div class="form-group">
+            <label for="sortAssignments">Sort by:</label>
+            <select class="form-control" id="sortAssignments">
+              <option value="date-asc">Date (Earliest First)</option>
+              <option value="date-desc">Date (Latest First)</option>
+              <option value="site">Site Name</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Assignments Cards -->
+      <div class="row" id="assignmentsContainer">
+        <!-- Assignments will be loaded here -->
+        <div class="col-12 text-center py-3">
+          <div class="spinner-border text-primary" role="status">
+            <span class="sr-only">Loading...</span>
+          </div>
+          <p>Loading your clinical assignments...</p>
+        </div>
+      </div>
+
+      <!-- No Assignments Message -->
+      <div id="noAssignmentsMessage" class="text-center py-5" style="display: none;">
+        <div class="empty-state">
+          <i class="fas fa-calendar-times fa-4x text-muted mb-3"></i>
+          <h3>No Clinical Assignments Found</h3>
+          <p class="text-muted">You don't have any clinical assignments for the selected filter.</p>
+          <a href="/student/clinical-preferences" class="btn btn-primary mt-3">
+            <i class="fas fa-calendar-alt"></i> Set Your Clinical Preferences
+          </a>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+$(document).ready(function() {
+  // Format date to display nicely
+  const formatDate = (dateString) => {
+    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    return new Date(dateString).toLocaleDateString('en-US', options);
+  };
+  
+  // Format time from 24-hour to 12-hour format
+  const formatTime = (timeString) => {
+    const [hours, minutes] = timeString.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+  };
+  
+  // Load student's clinical assignments
+  function loadAssignments() {
+    const dateFilter = $('#assignmentDateFilter').val();
+    const sortBy = $('#sortAssignments').val();
+    
+    $('#assignmentsContainer').html(`
+      <div class="col-12 text-center py-3">
+        <div class="spinner-border text-primary" role="status">
+          <span class="sr-only">Loading...</span>
+        </div>
+        <p>Loading your clinical assignments...</p>
+      </div>
+    `);
+    
+    $.get('/api/scheduling/assignments', function(data) {
+      let assignments = data.assignments;
+      
+      if (assignments.length === 0) {
+        $('#assignmentsContainer').html('');
+        $('#noAssignmentsMessage').show();
+        return;
+      }
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      // Apply date filter
+      if (dateFilter === 'upcoming') {
+        assignments = assignments.filter(assignment => {
+          const assignmentDate = new Date(assignment.slot_date);
+          return assignmentDate >= today;
+        });
+      } else if (dateFilter === 'past') {
+        assignments = assignments.filter(assignment => {
+          const assignmentDate = new Date(assignment.slot_date);
+          return assignmentDate < today;
+        });
+      }
+      
+      // Apply sorting
+      if (sortBy === 'date-asc') {
+        assignments.sort((a, b) => new Date(a.slot_date) - new Date(b.slot_date));
+      } else if (sortBy === 'date-desc') {
+        assignments.sort((a, b) => new Date(b.slot_date) - new Date(a.slot_date));
+      } else if (sortBy === 'site') {
+        assignments.sort((a, b) => a.site_name.localeCompare(b.site_name));
+      }
+      
+      if (assignments.length === 0) {
+        $('#assignmentsContainer').html('');
+        $('#noAssignmentsMessage').show();
+        return;
+      }
+      
+      $('#noAssignmentsMessage').hide();
+      
+      let assignmentCards = '';
+      
+      assignments.forEach(assignment => {
+        const assignmentDate = new Date(assignment.slot_date);
+        const isPast = assignmentDate < today;
+        const cardClass = isPast ? 'bg-light' : '';
+        const statusClass = isPast ? 'badge-secondary' : 'badge-success';
+        const statusText = isPast ? 'Completed' : 'Upcoming';
+        
+        assignmentCards += `
+          <div class="col-md-6 mb-4">
+            <div class="card ${cardClass}">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">${assignment.site_name}</h5>
+                <span class="badge ${statusClass}">${statusText}</span>
+              </div>
+              <div class="card-body">
+                <h6 class="card-subtitle mb-2 text-muted">${formatDate(assignment.slot_date)}</h6>
+                <p class="card-text">
+                  <i class="far fa-clock"></i> ${formatTime(assignment.start_time)} - ${formatTime(assignment.end_time)}<br>
+                  <i class="fas fa-map-marker-alt"></i> ${assignment.address || 'Address not available'}<br>
+                  <i class="fas fa-user-md"></i> Preceptor: ${assignment.preceptor_name || 'To be determined'}<br>
+                  <i class="fas fa-info-circle"></i> ${assignment.notes || 'No additional notes'}
+                </p>
+              </div>
+              <div class="card-footer text-muted small">
+                Assigned by: ${assignment.assigned_by_name} on ${new Date(assignment.created_at).toLocaleDateString()}
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      
+      $('#assignmentsContainer').html(assignmentCards);
+    });
+  }
+  
+  // Handle date filter and sorting changes
+  $('#assignmentDateFilter, #sortAssignments').change(function() {
+    loadAssignments();
+  });
+  
+  // Print assignments
+  $('#btnPrintAssignments').click(function() {
+    window.print();
+  });
+  
+  // Initialize the page
+  loadAssignments();
+});
+</script>
+
+<style>
+@media print {
+  .sidebar, .btn-toolbar, .alert, .row.mb-3, header, footer {
+    display: none !important;
+  }
+  
+  .card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 20px;
+    border: 1px solid #ddd !important;
+  }
+  
+  main {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  
+  body {
+    padding: 0;
+    margin: 0;
+  }
+  
+  .col-md-6 {
+    width: 100%;
+    max-width: 100%;
+    flex: 0 0 100%;
+  }
+}
+
+.empty-state {
+  padding: 30px;
+  border-radius: 5px;
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+}
+</style>
+
+<%- include('../partials/footer') %>

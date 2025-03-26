@@ -1,0 +1,627 @@
+<%- include('../partials/header') %>
+
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar -->
+    <div class="col-md-2 d-none d-md-block bg-light sidebar">
+      <div class="sidebar-sticky">
+        <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+          <span>Student Navigation</span>
+        </h6>
+        <ul class="nav flex-column">
+          <li class="nav-item">
+            <a class="nav-link <%= path === '/student/dashboard' ? 'active' : '' %>" href="/student/dashboard">
+              <i class="fas fa-tachometer-alt"></i> Dashboard
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link <%= path === '/student/clinical-preferences' ? 'active' : '' %>" href="/student/clinical-preferences">
+              <i class="fas fa-calendar-alt"></i> Clinical Preferences
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link <%= path === '/student/clinical-assignments' ? 'active' : '' %>" href="/student/clinical-assignments">
+              <i class="fas fa-clipboard-list"></i> My Assignments
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link <%= path === '/student/ride-time' ? 'active' : '' %>" href="/student/ride-time">
+              <i class="fas fa-ambulance"></i> Ride Time Logs
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <main role="main" class="col-md-10 ml-sm-auto px-4">
+      <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+        <h1 class="h2">Ride Time Tracking</h1>
+        <div class="btn-toolbar mb-2 mb-md-0">
+          <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddRideLog">
+            <i class="fas fa-plus"></i> Add New Ride Log
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary ml-2" id="btnPrintLogs">
+            <i class="fas fa-print"></i> Print Logs
+          </button>
+        </div>
+      </div>
+
+      <!-- Ride Time Summary -->
+      <div class="card mb-4">
+        <div class="card-header">
+          <h5 class="mb-0">Ride Time Summary</h5>
+        </div>
+        <div class="card-body">
+          <div class="row" id="rideSummaryContainer">
+            <div class="col-md-3 mb-3">
+              <div class="card h-100 text-center">
+                <div class="card-body">
+                  <h3 id="totalHours">-</h3>
+                  <p class="text-muted mb-0">Total Hours</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3 mb-3">
+              <div class="card h-100 text-center">
+                <div class="card-body">
+                  <h3 id="uniqueServices">-</h3>
+                  <p class="text-muted mb-0">Unique Services</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3 mb-3">
+              <div class="card h-100 text-center">
+                <div class="card-body">
+                  <h3 id="totalPatients">-</h3>
+                  <p class="text-muted mb-0">Patient Contacts</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3 mb-3">
+              <div class="card h-100 text-center">
+                <div class="card-body">
+                  <h3 id="cprCount">-</h3>
+                  <p class="text-muted mb-0">CPR Performed</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="row mt-3">
+            <div class="col-md-12">
+              <div class="progress-container">
+                <h6>Skills Completion</h6>
+                <div class="progress-labels d-flex justify-content-between">
+                  <span>AED Used: <span id="aedCount">0</span></span>
+                  <span>Ventilations: <span id="ventilationCount">0</span></span>
+                  <span>Traction Splinting: <span id="tractionCount">0</span></span>
+                  <span>12-Lead ECG: <span id="twelveLeadCount">0</span></span>
+                  <span>Medication Admin: <span id="medicationCount">0</span></span>
+                  <span>IVs Placed: <span id="ivCount">0</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ride Time Logs -->
+      <div class="table-responsive">
+        <table class="table table-striped" id="rideLogsTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Service</th>
+              <th>Hours</th>
+              <th>Unit Type</th>
+              <th>Preceptor</th>
+              <th>Patients</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Ride logs will be loaded here -->
+            <tr>
+              <td colspan="7" class="text-center">Loading ride time logs...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- No Logs Message -->
+      <div id="noLogsMessage" class="text-center py-5" style="display: none;">
+        <div class="empty-state">
+          <i class="fas fa-ambulance fa-4x text-muted mb-3"></i>
+          <h3>No Ride Time Logs Found</h3>
+          <p class="text-muted">You haven't recorded any ride time logs yet. Click the button below to add your first log.</p>
+          <button class="btn btn-primary mt-3" id="btnAddFirstLog">
+            <i class="fas fa-plus"></i> Add Your First Ride Log
+          </button>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Add/Edit Ride Log Modal -->
+<div class="modal fade" id="rideLogModal" tabindex="-1" role="dialog" aria-labelledby="rideLogModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="rideLogModalLabel">Add Ride Time Log</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form id="rideLogForm">
+          <input type="hidden" id="logId">
+          
+          <div class="form-row">
+            <div class="form-group col-md-6">
+              <label for="serviceId">Ambulance Service*</label>
+              <select class="form-control" id="serviceId" required>
+                <option value="">Select a service</option>
+                <!-- Services will be populated here -->
+              </select>
+            </div>
+            <div class="form-group col-md-6">
+              <label for="date">Date*</label>
+              <input type="date" class="form-control" id="date" required>
+            </div>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group col-md-4">
+              <label for="hours">Hours*</label>
+              <input type="number" class="form-control" id="hours" min="0.5" step="0.5" required>
+            </div>
+            <div class="form-group col-md-4">
+              <label for="shiftType">Shift Type</label>
+              <select class="form-control" id="shiftType">
+                <option value="">Select shift type</option>
+                <option value="Day">Day</option>
+                <option value="Night">Night</option>
+                <option value="Evening">Evening</option>
+                <option value="24-Hour">24-Hour</option>
+              </select>
+            </div>
+            <div class="form-group col-md-4">
+              <label for="unitType">Unit Type</label>
+              <select class="form-control" id="unitType">
+                <option value="">Select unit type</option>
+                <option value="ALS">ALS</option>
+                <option value="BLS">BLS</option>
+                <option value="MICU">MICU</option>
+                <option value="Specialty">Specialty</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group col-md-6">
+              <label for="preceptorName">Preceptor Name</label>
+              <input type="text" class="form-control" id="preceptorName">
+            </div>
+            <div class="form-group col-md-6">
+              <label for="preceptorLicense">Preceptor License #</label>
+              <input type="text" class="form-control" id="preceptorLicense">
+            </div>
+          </div>
+          
+          <h5 class="mt-3">Patient Contacts & Skills</h5>
+          <div class="form-row">
+            <div class="form-group col-md-6">
+              <label for="patientContacts">Patient Contacts</label>
+              <input type="number" class="form-control" id="patientContacts" min="0" value="0">
+            </div>
+            <div class="form-group col-md-6">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="aedUsed">
+                <label class="form-check-label" for="aedUsed">AED Used</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="cprPerformed">
+                <label class="form-check-label" for="cprPerformed">CPR Performed</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="spinalImmobilization">
+                <label class="form-check-label" for="spinalImmobilization">Spinal Immobilization</label>
+              </div>
+            </div>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group col-md-6">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="ventilations">
+                <label class="form-check-label" for="ventilations">Ventilations</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="tractionSplinting">
+                <label class="form-check-label" for="tractionSplinting">Traction Splinting</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="twelveLead">
+                <label class="form-check-label" for="twelveLead">12-Lead ECG</label>
+              </div>
+            </div>
+            <div class="form-group col-md-6">
+              <label for="medicationAdministrations">Medication Administrations</label>
+              <input type="number" class="form-control" id="medicationAdministrations" min="0" value="0">
+              
+              <label for="ivsPlaced" class="mt-2">IVs Placed</label>
+              <input type="number" class="form-control" id="ivsPlaced" min="0" value="0">
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label for="notes">Notes</label>
+            <textarea class="form-control" id="notes" rows="3"></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="btnDeleteRideLog" style="display: none;">Delete</button>
+        <button type="button" class="btn btn-primary" id="btnSaveRideLog">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- View Log Details Modal -->
+<div class="modal fade" id="viewLogModal" tabindex="-1" role="dialog" aria-labelledby="viewLogModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="viewLogModalLabel">Ride Time Log Details</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body" id="viewLogDetails">
+        <!-- Details will be loaded here -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" id="btnEditLog">Edit</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+$(document).ready(function() {
+  // Set default date to today
+  $('#date').val(new Date().toISOString().split('T')[0]);
+  
+  // Load ambulance services for dropdown
+  function loadAmbulanceServices() {
+    $.get('/api/ridetime/services', function(data) {
+      const services = data.services;
+      let serviceOptions = '<option value="">Select a service</option>';
+      
+      services.forEach(service => {
+        serviceOptions += `<option value="${service.service_id}">${service.service_name}</option>`;
+      });
+      
+      $('#serviceId').html(serviceOptions);
+    });
+  }
+  
+  // Load ride time summary
+  function loadRideSummary() {
+    $.get('/api/ridetime/summary', function(summary) {
+      $('#totalHours').text(summary.total_hours ? summary.total_hours.toFixed(1) : '0.0');
+      $('#uniqueServices').text(summary.unique_services || '0');
+      $('#totalPatients').text(summary.total_patients || '0');
+      $('#cprCount').text(summary.cpr_count || '0');
+      
+      $('#aedCount').text(summary.aed_count || '0');
+      $('#ventilationCount').text(summary.ventilation_count || '0');
+      $('#tractionCount').text(summary.traction_count || '0');
+      $('#twelveLeadCount').text(summary.twelve_lead_count || '0');
+      $('#medicationCount').text(summary.medication_count || '0');
+      $('#ivCount').text(summary.iv_count || '0');
+    });
+  }
+  
+  // Load ride time logs
+  function loadRideLogs() {
+    $.get('/api/ridetime/logs', function(data) {
+      const logs = data.logs;
+      
+      if (logs.length === 0) {
+        $('#rideLogsTable').hide();
+        $('#noLogsMessage').show();
+        return;
+      }
+      
+      $('#rideLogsTable').show();
+      $('#noLogsMessage').hide();
+      
+      let rows = '';
+      
+      logs.forEach(log => {
+        const date = new Date(log.date).toLocaleDateString();
+        
+        rows += `
+          <tr>
+            <td>${date}</td>
+            <td>${log.service_name}</td>
+            <td>${log.hours}</td>
+            <td>${log.unit_type || '-'}</td>
+            <td>${log.preceptor_name || '-'}</td>
+            <td>${log.patient_contacts || '0'}</td>
+            <td>
+              <button class="btn btn-sm btn-info view-log" data-id="${log.log_id}">
+                <i class="fas fa-eye"></i> View
+              </button>
+              <button class="btn btn-sm btn-secondary edit-log" data-id="${log.log_id}">
+                <i class="fas fa-edit"></i> Edit
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+      
+      $('#rideLogsTable tbody').html(rows);
+    });
+  }
+  
+  // Open add ride log modal
+  $('#btnAddRideLog, #btnAddFirstLog').click(function() {
+    $('#rideLogModalLabel').text('Add Ride Time Log');
+    $('#rideLogForm')[0].reset();
+    $('#logId').val('');
+    $('#date').val(new Date().toISOString().split('T')[0]);
+    $('#btnDeleteRideLog').hide();
+    $('#rideLogModal').modal('show');
+  });
+  
+  // Save ride log
+  $('#btnSaveRideLog').click(function() {
+    const logId = $('#logId').val();
+    
+    const data = {
+      serviceId: $('#serviceId').val(),
+      date: $('#date').val(),
+      hours: $('#hours').val(),
+      shiftType: $('#shiftType').val(),
+      unitType: $('#unitType').val(),
+      preceptorName: $('#preceptorName').val(),
+      preceptorLicense: $('#preceptorLicense').val(),
+      patientContacts: $('#patientContacts').val(),
+      aedUsed: $('#aedUsed').is(':checked'),
+      cprPerformed: $('#cprPerformed').is(':checked'),
+      spinalImmobilization: $('#spinalImmobilization').is(':checked'),
+      ventilations: $('#ventilations').is(':checked'),
+      tractionSplinting: $('#tractionSplinting').is(':checked'),
+      twelveLead: $('#twelveLead').is(':checked'),
+      medicationAdministrations: $('#medicationAdministrations').val(),
+      ivsPlaced: $('#ivsPlaced').val(),
+      notes: $('#notes').val()
+    };
+    
+    if (!data.serviceId || !data.date || !data.hours) {
+      alert('Please fill in all required fields (Service, Date, and Hours)');
+      return;
+    }
+    
+    let url, method;
+    if (logId) {
+      // Update existing log
+      url = `/api/ridetime/logs/${logId}`;
+      method = 'PUT';
+    } else {
+      // Create new log
+      url = '/api/ridetime/logs/add';
+      method = 'POST';
+    }
+    
+    $.ajax({
+      url: url,
+      method: method,
+      data: JSON.stringify(data),
+      contentType: 'application/json',
+      success: function(response) {
+        $('#rideLogModal').modal('hide');
+        loadRideSummary();
+        loadRideLogs();
+        alert(logId ? 'Ride time log updated successfully!' : 'Ride time log added successfully!');
+      },
+      error: function(xhr) {
+        alert('Error: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Failed to save ride time log'));
+      }
+    });
+  });
+  
+  // View log details
+  $(document).on('click', '.view-log', function() {
+    const logId = $(this).data('id');
+    
+    $.get(`/api/ridetime/logs/${logId}`, function(log) {
+      const date = new Date(log.date).toLocaleDateString();
+      
+      let skillsList = '';
+      if (log.aed_used) skillsList += '<li>AED Used</li>';
+      if (log.cpr_performed) skillsList += '<li>CPR Performed</li>';
+      if (log.spinal_immobilization) skillsList += '<li>Spinal Immobilization</li>';
+      if (log.ventilations) skillsList += '<li>Ventilations</li>';
+      if (log.traction_splinting) skillsList += '<li>Traction Splinting</li>';
+      if (log.twelve_lead) skillsList += '<li>12-Lead ECG</li>';
+      
+      if (skillsList === '') {
+        skillsList = '<p class="text-muted">No skills reported for this ride time.</p>';
+      } else {
+        skillsList = `<ul>${skillsList}</ul>`;
+      }
+      
+      $('#viewLogDetails').html(`
+        <div class="row">
+          <div class="col-md-6">
+            <h6>Service Information</h6>
+            <p>
+              <strong>Service:</strong> ${log.service_name}<br>
+              <strong>Date:</strong> ${date}<br>
+              <strong>Hours:</strong> ${log.hours}<br>
+              <strong>Shift Type:</strong> ${log.shift_type || 'Not specified'}<br>
+              <strong>Unit Type:</strong> ${log.unit_type || 'Not specified'}
+            </p>
+          </div>
+          <div class="col-md-6">
+            <h6>Preceptor Information</h6>
+            <p>
+              <strong>Name:</strong> ${log.preceptor_name || 'Not specified'}<br>
+              <strong>License #:</strong> ${log.preceptor_license || 'Not specified'}
+            </p>
+          </div>
+        </div>
+        <hr>
+        <div class="row">
+          <div class="col-md-6">
+            <h6>Patient Contacts</h6>
+            <p>${log.patient_contacts || '0'} patients</p>
+            
+            <h6>Skills Performed</h6>
+            ${skillsList}
+          </div>
+          <div class="col-md-6">
+            <h6>Advanced Skills</h6>
+            <p>
+              <strong>Medication Administrations:</strong> ${log.medication_administrations || '0'}<br>
+              <strong>IVs Placed:</strong> ${log.ivs_placed || '0'}
+            </p>
+            
+            <h6>Notes</h6>
+            <p>${log.notes || 'No notes recorded.'}</p>
+          </div>
+        </div>
+      `);
+      
+      $('#btnEditLog').data('id', log.log_id);
+      $('#viewLogModal').modal('show');
+    });
+  });
+  
+  // Open edit log modal from view modal
+  $('#btnEditLog').click(function() {
+    const logId = $(this).data('id');
+    $('#viewLogModal').modal('hide');
+    
+    // Small delay to avoid modal conflicts
+    setTimeout(function() {
+      $('.edit-log[data-id="' + logId + '"]').click();
+    }, 500);
+  });
+  
+  // Edit log
+  $(document).on('click', '.edit-log', function() {
+    const logId = $(this).data('id');
+    
+    $.get(`/api/ridetime/logs/${logId}`, function(log) {
+      $('#rideLogModalLabel').text('Edit Ride Time Log');
+      $('#logId').val(log.log_id);
+      $('#serviceId').val(log.service_id);
+      $('#date').val(log.date.split('T')[0]);
+      $('#hours').val(log.hours);
+      $('#shiftType').val(log.shift_type || '');
+      $('#unitType').val(log.unit_type || '');
+      $('#preceptorName').val(log.preceptor_name || '');
+      $('#preceptorLicense').val(log.preceptor_license || '');
+      $('#patientContacts').val(log.patient_contacts || 0);
+      $('#aedUsed').prop('checked', log.aed_used);
+      $('#cprPerformed').prop('checked', log.cpr_performed);
+      $('#spinalImmobilization').prop('checked', log.spinal_immobilization);
+      $('#ventilations').prop('checked', log.ventilations);
+      $('#tractionSplinting').prop('checked', log.traction_splinting);
+      $('#twelveLead').prop('checked', log.twelve_lead);
+      $('#medicationAdministrations').val(log.medication_administrations || 0);
+      $('#ivsPlaced').val(log.ivs_placed || 0);
+      $('#notes').val(log.notes || '');
+      
+      $('#btnDeleteRideLog').show();
+      $('#rideLogModal').modal('show');
+    });
+  });
+  
+  // Delete ride log
+  $('#btnDeleteRideLog').click(function() {
+    if (!confirm('Are you sure you want to delete this ride time log? This action cannot be undone.')) {
+      return;
+    }
+    
+    const logId = $('#logId').val();
+    
+    $.ajax({
+      url: `/api/ridetime/logs/${logId}`,
+      method: 'DELETE',
+      success: function(response) {
+        $('#rideLogModal').modal('hide');
+        loadRideSummary();
+        loadRideLogs();
+        alert('Ride time log deleted successfully!');
+      },
+      error: function(xhr) {
+        alert('Error: ' + (xhr.responseJSON ? xhr.responseJSON.error : 'Failed to delete ride time log'));
+      }
+    });
+  });
+  
+  // Print logs
+  $('#btnPrintLogs').click(function() {
+    window.print();
+  });
+  
+  // Initialize page
+  loadAmbulanceServices();
+  loadRideSummary();
+  loadRideLogs();
+});
+</script>
+
+<style>
+@media print {
+  .sidebar, .btn-toolbar, .modal, .row.mb-3, header, footer, .actions {
+    display: none !important;
+  }
+  
+  main {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  
+  body {
+    padding: 0;
+    margin: 0;
+  }
+  
+  .card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 20px;
+    border: 1px solid #ddd !important;
+  }
+  
+  #rideLogsTable th:last-child, 
+  #rideLogsTable td:last-child {
+    display: none;
+  }
+}
+
+.empty-state {
+  padding: 30px;
+  border-radius: 5px;
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+}
+
+.progress-labels {
+  font-size: 0.9rem;
+}
+</style>
+
+<%- include('../partials/footer') %>
