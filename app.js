@@ -3634,20 +3634,31 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   let client;
   try {
-    const { email, password } = req.body;
-    
     // Validate input
-    if (!email || !password) {
+    if (!req.body || !req.body.email || !req.body.password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
     
-    client = await connectToDb();
+    const { email, password } = req.body;
+    
+    try {
+      client = await connectToDb();
+    } catch (dbError) {
+      console.error('Database connection error:', dbError);
+      return res.status(500).json({ error: 'Database connection failed' });
+    }
     
     // Find user
-    const result = await client.query(
-      'SELECT * FROM users WHERE email = $1',
-      [email]
-    );
+    let result;
+    try {
+      result = await client.query(
+        'SELECT * FROM users WHERE email = $1',
+        [email]
+      );
+    } catch (queryError) {
+      console.error('User query error:', queryError);
+      return res.status(500).json({ error: 'Login failed' });
+    }
     
     if (result.rows.length === 0) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -3656,24 +3667,36 @@ app.post('/api/login', async (req, res) => {
     const user = result.rows[0];
     
     // Verify password
-    const passwordValid = await bcrypt.compare(password, user.password_hash);
+    let passwordValid;
+    try {
+      passwordValid = await bcrypt.compare(password, user.password_hash);
+    } catch (bcryptError) {
+      console.error('Password verification error:', bcryptError);
+      return res.status(500).json({ error: 'Error verifying password' });
+    }
     
     if (!passwordValid) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
     // Generate JWT token
-    const token = jwt.sign(
-      { 
-        userId: user.user_id, 
-        email: user.email, 
-        role: user.role,
-        firstName: user.first_name,
-        lastName: user.last_name
-      },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
+    let token;
+    try {
+      token = jwt.sign(
+        { 
+          userId: user.user_id, 
+          email: user.email, 
+          role: user.role,
+          firstName: user.first_name,
+          lastName: user.last_name
+        },
+        JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+    } catch (jwtError) {
+      console.error('JWT generation error:', jwtError);
+      return res.status(500).json({ error: 'Error generating authentication token' });
+    }
     
     // Set token as HTTP-only cookie
     res.cookie('token', token, {
@@ -3682,7 +3705,7 @@ app.post('/api/login', async (req, res) => {
       sameSite: 'strict'
     });
     
-    res.json({
+    return res.json({
       message: 'Login successful',
       user: {
         userId: user.user_id,
@@ -3694,11 +3717,16 @@ app.post('/api/login', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Login failed' });
+    console.error('Unexpected login error:', error);
+    return res.status(500).json({ error: 'An unexpected error occurred' });
   } finally {
+    // Always close the database connection
     if (client) {
-      await client.end();
+      try {
+        await client.end();
+      } catch (endError) {
+        console.error('Error closing database connection:', endError);
+      }
     }
   }
 });
@@ -4146,6 +4174,15 @@ app.get('/setup-db', async (req, res) => {
       await client.end();
     }
   }
+});
+
+// Error handling middleware - add this AFTER all your routes but BEFORE app.listen
+app.use((err, req, res, next) => {
+  console.error('Global error handler caught:', err);
+  res.status(500).json({ 
+    error: 'An unexpected error occurred',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Server error'
+  });
 });
 
 // Start the server
