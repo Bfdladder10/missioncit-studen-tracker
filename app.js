@@ -698,7 +698,7 @@ app.get('/patients', authMiddleware, (req, res) => {
           <p>Loading patient contacts...</p>
         </div>
         
-        <!-- Modal for adding a new patient contact -->
+       <!-- Modal for adding a new patient contact -->
         <div id="addContactModal" class="modal">
           <div class="modal-content">
             <span class="close">&times;</span>
@@ -1427,7 +1427,7 @@ app.get('/clinicals', authMiddleware, (req, res) => {
             return 'th';
           }
           
-          // Preference modal functionality
+         // Preference modal functionality
           const prefModal = document.getElementById('preferencesModal');
           const prefSpan = prefModal.querySelector('.close');
           
@@ -2336,26 +2336,11 @@ app.get('/api/clinicals/opportunities', authMiddleware, async (req, res) => {
         co.notes,
         sp.preference_rank
       FROM clinical_opportunities co
-      JOIN clinical_locations cl ON
-
-      // Get available opportunities for this certification level
-    const result = await client.query(`
-      SELECT 
-        co.opportunity_id,
-        co.start_datetime,
-        co.end_datetime,
-        co.slots_available,
-        cl.location_name,
-        cl.address,
-        co.notes,
-        sp.preference_rank
-      FROM clinical_opportunities co
       JOIN clinical_locations cl ON co.location_id = cl.location_id
       LEFT JOIN student_preferences sp ON co.opportunity_id = sp.opportunity_id AND sp.student_id = $1
       WHERE co.certification_level_id = $2
-        AND co.is_active = true
+        AND co.start_datetime > NOW()
         AND co.slots_available > 0
-        AND co.start_datetime >= NOW()
       ORDER BY co.start_datetime
     `, [req.user.userId, certLevelId]);
     
@@ -2382,7 +2367,7 @@ app.get('/api/clinicals/history', authMiddleware, async (req, res) => {
   try {
     client = await connectToDb();
     
-    // Get clinical history
+    // Get completed clinical assignments
     const result = await client.query(`
       SELECT 
         sc.assignment_id,
@@ -2396,6 +2381,7 @@ app.get('/api/clinicals/history', authMiddleware, async (req, res) => {
       JOIN clinical_opportunities co ON sc.opportunity_id = co.opportunity_id
       JOIN clinical_locations cl ON co.location_id = cl.location_id
       WHERE sc.student_id = $1
+        AND (sc.status = 'completed' OR co.start_datetime < NOW())
       ORDER BY co.start_datetime DESC
     `, [req.user.userId]);
     
@@ -2411,11 +2397,11 @@ app.get('/api/clinicals/history', authMiddleware, async (req, res) => {
   }
 });
 
-// Submit preference for a clinical opportunity
+// Submit a preference for a clinical opportunity
 app.post('/api/clinicals/preferences', authMiddleware, async (req, res) => {
-  // Only students can submit preferences
+  // Only students can select preferences
   if (req.user.role !== 'student') {
-    return res.status(403).json({ error: 'Only students can submit preferences' });
+    return res.status(403).json({ error: 'Only students can select preferences' });
   }
   
   const { opportunityId, preferenceRank } = req.body;
@@ -2432,8 +2418,8 @@ app.post('/api/clinicals/preferences', authMiddleware, async (req, res) => {
   try {
     client = await connectToDb();
     
-    // Check if student already has this preference rank
-    const checkResult = await client.query(`
+    // Check if student already has this preference rank for another opportunity
+    const existingPreference = await client.query(`
       SELECT opportunity_id
       FROM student_preferences
       WHERE student_id = $1 AND preference_rank = $2
@@ -2442,40 +2428,34 @@ app.post('/api/clinicals/preferences', authMiddleware, async (req, res) => {
     // Start transaction
     await client.query('BEGIN');
     
-    // If they have this rank for another opportunity, update it
-    if (checkResult.rows.length > 0) {
-      const existingOpportunityId = checkResult.rows[0].opportunity_id;
-      
-      // If it's the same opportunity, just update the preference
-      if (existingOpportunityId === opportunityId) {
-        await client.query(`
-          UPDATE student_preferences
-          SET preference_rank = $3
-          WHERE student_id = $1 AND opportunity_id = $2
-        `, [req.user.userId, opportunityId, preferenceRank]);
-      } else {
-        // Otherwise, update existing preference to null temporarily
-        await client.query(`
-          UPDATE student_preferences
-          SET preference_rank = NULL
-          WHERE student_id = $1 AND opportunity_id = $2
-        `, [req.user.userId, existingOpportunityId]);
-        
-        // Insert or update new preference
-        await client.query(`
-          INSERT INTO student_preferences (student_id, opportunity_id, preference_rank)
-          VALUES ($1, $2, $3)
-          ON CONFLICT (student_id, opportunity_id)
-          DO UPDATE SET preference_rank = $3
-        `, [req.user.userId, opportunityId, preferenceRank]);
-      }
+    // If student already has this preference rank, update it
+    if (existingPreference.rows.length > 0) {
+      await client.query(`
+        UPDATE student_preferences
+        SET preference_rank = NULL
+        WHERE student_id = $1 AND preference_rank = $2
+      `, [req.user.userId, preferenceRank]);
+    }
+    
+    // Check if student already has a preference for this opportunity
+    const currentPreference = await client.query(`
+      SELECT preference_id, preference_rank
+      FROM student_preferences
+      WHERE student_id = $1 AND opportunity_id = $2
+    `, [req.user.userId, opportunityId]);
+    
+    if (currentPreference.rows.length > 0) {
+      // Update existing preference
+      await client.query(`
+        UPDATE student_preferences
+        SET preference_rank = $3
+        WHERE student_id = $1 AND opportunity_id = $2
+      `, [req.user.userId, opportunityId, preferenceRank]);
     } else {
-      // Just insert or update the preference
+      // Insert new preference
       await client.query(`
         INSERT INTO student_preferences (student_id, opportunity_id, preference_rank)
         VALUES ($1, $2, $3)
-        ON CONFLICT (student_id, opportunity_id)
-        DO UPDATE SET preference_rank = $3
       `, [req.user.userId, opportunityId, preferenceRank]);
     }
     
@@ -2496,27 +2476,21 @@ app.post('/api/clinicals/preferences', authMiddleware, async (req, res) => {
     console.error('Error saving preference:', error);
     res.status(500).json({ error: 'Failed to save preference' });
   } finally {
-    if (client) {
-      await client.end();
-    }
+    if (client) await client.end();
   }
 });
 
-// Complete a clinical rotation
+// Complete a clinical
 app.post('/api/clinicals/complete', authMiddleware, async (req, res) => {
-  // Only students can complete their own clinicals
+  // Only students can complete their clinicals
   if (req.user.role !== 'student') {
-    return res.status(403).json({ error: 'Access forbidden' });
+    return res.status(403).json({ error: 'Only students can complete their clinicals' });
   }
   
   const { assignmentId, hoursCompleted, notes } = req.body;
   
-  if (!assignmentId || !hoursCompleted) {
+  if (!assignmentId || hoursCompleted === undefined) {
     return res.status(400).json({ error: 'Assignment ID and hours completed are required' });
-  }
-  
-  if (hoursCompleted <= 0 || hoursCompleted > 24) {
-    return res.status(400).json({ error: 'Hours completed must be between 0 and 24' });
   }
   
   let client;
@@ -2524,22 +2498,22 @@ app.post('/api/clinicals/complete', authMiddleware, async (req, res) => {
     client = await connectToDb();
     
     // Check if this clinical belongs to the student
-    const checkResult = await client.query(`
+    const assignmentCheck = await client.query(`
       SELECT 1
       FROM student_clinicals
       WHERE assignment_id = $1 AND student_id = $2
     `, [assignmentId, req.user.userId]);
     
-    if (checkResult.rows.length === 0) {
-      return res.status(403).json({ error: 'This clinical does not belong to you' });
+    if (assignmentCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Clinical assignment not found' });
     }
     
     // Update clinical status to completed
     await client.query(`
       UPDATE student_clinicals
-      SET status = 'completed', hours_completed = $2, notes = $3
-      WHERE assignment_id = $1
-    `, [assignmentId, hoursCompleted, notes]);
+      SET status = 'completed', hours_completed = $3, notes = $4
+      WHERE assignment_id = $1 AND student_id = $2
+    `, [assignmentId, req.user.userId, hoursCompleted, notes]);
     
     res.json({
       success: true,
@@ -2554,13 +2528,18 @@ app.post('/api/clinicals/complete', authMiddleware, async (req, res) => {
   }
 });
 
-// Admin routes for clinical management
-app.get('/api/clinicals/admin/opportunities', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+// Admin: Get all clinical opportunities with student preferences
+app.get('/api/clinicals/admin/opportunities', authMiddleware, async (req, res) => {
+  // Only admins can access this endpoint
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Access forbidden' });
+  }
+  
   let client;
   try {
     client = await connectToDb();
     
-    // Get all active opportunities with preferences
+    // Get all opportunities
     const opportunitiesResult = await client.query(`
       SELECT 
         co.opportunity_id,
@@ -2571,34 +2550,32 @@ app.get('/api/clinicals/admin/opportunities', authMiddleware, roleMiddleware(['a
         cl.address,
         cl.city,
         cl.state,
-        cl.zip,
         co.notes,
         cert.level_name
       FROM clinical_opportunities co
       JOIN clinical_locations cl ON co.location_id = cl.location_id
       JOIN certification_levels cert ON co.certification_level_id = cert.level_id
-      WHERE co.is_active = true
-        AND co.start_datetime >= NOW()
+      WHERE co.start_datetime > NOW()
       ORDER BY co.start_datetime
     `);
     
     const opportunities = opportunitiesResult.rows;
     
     // For each opportunity, get student preferences
-    for (const opp of opportunities) {
-      const prefsResult = await client.query(`
+    for (const opportunity of opportunities) {
+      const preferencesResult = await client.query(`
         SELECT 
           sp.student_id,
           sp.preference_rank,
-          u.first_name || ' ' || u.last_name as student_name
+          u.first_name || ' ' || u.last_name AS student_name
         FROM student_preferences sp
-        JOIN users u ON sp.student_id = u.user_id
+        JOIN students s ON sp.student_id = s.student_id
+        JOIN users u ON s.student_id = u.user_id
         WHERE sp.opportunity_id = $1
-          AND sp.preference_rank IS NOT NULL
         ORDER BY sp.preference_rank
-      `, [opp.opportunity_id]);
+      `, [opportunity.opportunity_id]);
       
-      opp.preferences = prefsResult.rows;
+      opportunity.preferences = preferencesResult.rows;
     }
     
     res.json({
@@ -2607,25 +2584,31 @@ app.get('/api/clinicals/admin/opportunities', authMiddleware, roleMiddleware(['a
     
   } catch (error) {
     console.error('Error fetching admin opportunities:', error);
-    res.status(500).json({ error: 'Failed to fetch opportunities' });
+    res.status(500).json({ error: 'Failed to fetch admin opportunities' });
   } finally {
     if (client) await client.end();
   }
 });
 
-// Create a new clinical opportunity (admin only)
-app.post('/api/clinicals/admin/opportunities', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+// Admin: Create a new clinical opportunity
+app.post('/api/clinicals/admin/opportunities', authMiddleware, async (req, res) => {
+  // Only admins can create opportunities
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Only admins can create clinical opportunities' });
+  }
+  
   const { 
     locationId, 
-    certificationLevelId, 
-    startDateTime, 
-    endDateTime, 
-    slotsAvailable, 
-    notes 
+    certificationLevelId,
+    startDateTime,
+    endDateTime,
+    slotsAvailable,
+    notes
   } = req.body;
   
-  if (!locationId || !certificationLevelId || !startDateTime || !endDateTime || !slotsAvailable) {
-    return res.status(400).json({ error: 'All fields are required' });
+  // Validate required fields
+  if (!locationId || !certificationLevelId || !startDateTime || !endDateTime) {
+    return res.status(400).json({ error: 'Location, certification level, start date, and end date are required' });
   }
   
   let client;
@@ -2640,8 +2623,8 @@ app.post('/api/clinicals/admin/opportunities', authMiddleware, roleMiddleware(['
         start_datetime,
         end_datetime,
         slots_available,
-        notes,
-        created_by
+        created_by,
+        notes
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING opportunity_id
@@ -2650,9 +2633,9 @@ app.post('/api/clinicals/admin/opportunities', authMiddleware, roleMiddleware(['
       certificationLevelId,
       startDateTime,
       endDateTime,
-      slotsAvailable,
-      notes,
-      req.user.userId
+      slotsAvailable || 1,
+      req.user.userId,
+      notes
     ]);
     
     res.status(201).json({
@@ -2662,15 +2645,20 @@ app.post('/api/clinicals/admin/opportunities', authMiddleware, roleMiddleware(['
     });
     
   } catch (error) {
-    console.error('Error creating opportunity:', error);
-    res.status(500).json({ error: 'Failed to create opportunity' });
+    console.error('Error creating clinical opportunity:', error);
+    res.status(500).json({ error: 'Failed to create clinical opportunity' });
   } finally {
     if (client) await client.end();
   }
 });
 
-// Assign student to clinical
-app.post('/api/clinicals/admin/assign', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+// Admin: Assign a student to a clinical
+app.post('/api/clinicals/admin/assign', authMiddleware, async (req, res) => {
+  // Only admins can assign students
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Only admins can assign students to clinicals' });
+  }
+  
   const { opportunityId, studentId } = req.body;
   
   if (!opportunityId || !studentId) {
@@ -2684,36 +2672,35 @@ app.post('/api/clinicals/admin/assign', authMiddleware, roleMiddleware(['admin']
     // Start transaction
     await client.query('BEGIN');
     
-    // Check if opportunity exists and has slots available
-    const oppResult = await client.query(`
+    // Check if clinical opportunity exists and has slots available
+    const opportunityCheck = await client.query(`
       SELECT slots_available
       FROM clinical_opportunities
-      WHERE opportunity_id = $1 AND is_active = true
+      WHERE opportunity_id = $1
     `, [opportunityId]);
     
-    if (oppResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Opportunity not found' });
+    if (opportunityCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Clinical opportunity not found' });
     }
     
-    if (oppResult.rows[0].slots_available < 1) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'No slots available for this opportunity' });
+    const slotsAvailable = opportunityCheck.rows[0].slots_available;
+    
+    if (slotsAvailable < 1) {
+      return res.status(400).json({ error: 'No slots available for this clinical opportunity' });
     }
     
-    // Check if student isn't already assigned
-    const checkResult = await client.query(`
+    // Check if student is already assigned to this opportunity
+    const assignmentCheck = await client.query(`
       SELECT 1
       FROM student_clinicals
-      WHERE opportunity_id = $1 AND student_id = $2
-    `, [opportunityId, studentId]);
+      WHERE student_id = $1 AND opportunity_id = $2
+    `, [studentId, opportunityId]);
     
-    if (checkResult.rows.length > 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Student is already assigned to this opportunity' });
+    if (assignmentCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'Student is already assigned to this clinical' });
     }
     
-    // Assign student to clinical
+    // Create assignment
     await client.query(`
       INSERT INTO student_clinicals (
         student_id,
@@ -2745,79 +2732,71 @@ app.post('/api/clinicals/admin/assign', authMiddleware, roleMiddleware(['admin']
       await client.query('ROLLBACK');
     }
     
-    console.error('Error assigning student:', error);
-    res.status(500).json({ error: 'Failed to assign student' });
+    console.error('Error assigning student to clinical:', error);
+    res.status(500).json({ error: 'Failed to assign student to clinical' });
   } finally {
-    if (client) {
-      await client.end();
-    }
+    if (client) await client.end();
   }
 });
 
-// Authentication routes
-
-// Register a new user
+// Registration endpoint
 app.post('/api/register', async (req, res) => {
-  const { firstName, lastName, email, password, role } = req.body;
-  
-  // Validate input
-  if (!firstName || !lastName || !email || !password || !role) {
-    return res.status(400).json({ error: 'All fields are required' });
-  }
-  
-  // Validate role
-  const validRoles = ['student', 'instructor', 'admin'];
-  if (!validRoles.includes(role)) {
-    return res.status(400).json({ error: 'Invalid role' });
-  }
-  
   let client;
   try {
+    const { email, password, firstName, lastName, role } = req.body;
+    
+    // Validate input
+    if (!email || !password || !firstName || !lastName || !role) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+    
+    // Check if role is valid
+    if (!['student', 'admin', 'instructor'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+    
     client = await connectToDb();
     
-    // Check if email already exists
-    const checkResult = await client.query(
-      'SELECT 1 FROM users WHERE email = $1',
+    // Check if user already exists
+    const userCheck = await client.query(
+      'SELECT * FROM users WHERE email = $1',
       [email]
     );
     
-    if (checkResult.rows.length > 0) {
-      return res.status(400).json({ error: 'Email already registered' });
+    if (userCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'User already exists' });
     }
+    
+    // Hash password
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
     
     // Start transaction
     await client.query('BEGIN');
     
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
     // Insert user
-    const userResult = await client.query(
-      `INSERT INTO users (first_name, last_name, email, password_hash, role)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING user_id`,
-      [firstName, lastName, email, hashedPassword, role]
+    const result = await client.query(
+      `INSERT INTO users (email, password_hash, first_name, last_name, role)
+       VALUES ($1, $2, $3, $4, $5) RETURNING user_id`,
+      [email, passwordHash, firstName, lastName, role]
     );
     
-    const userId = userResult.rows[0].user_id;
+    const userId = result.rows[0].user_id;
     
     // If role is student, create student record
     if (role === 'student') {
-      // Default to EMT certification level
+      // Get certification level ID for EMT (default)
       const certResult = await client.query(
         'SELECT level_id FROM certification_levels WHERE level_name = $1',
         ['EMT']
       );
       
-      if (certResult.rows.length === 0) {
-        throw new Error('Default certification level not found');
-      }
-      
       const certLevelId = certResult.rows[0].level_id;
       
+      // Create student record
       await client.query(
-        `INSERT INTO students (student_id, certification_level_id)
-         VALUES ($1, $2)`,
+        `INSERT INTO students (student_id, certification_level_id, enrollment_date)
+         VALUES ($1, $2, CURRENT_DATE)`,
         [userId, certLevelId]
       );
     }
@@ -2827,27 +2806,27 @@ app.post('/api/register', async (req, res) => {
     
     // Generate JWT token
     const token = jwt.sign(
-      { userId, email, role },
+      { 
+        userId, 
+        email, 
+        role,
+        firstName,
+        lastName
+      },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
     
-    // Set token in cookie
+    // Set token as HTTP-only cookie
     res.cookie('token', token, {
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: 'strict'
     });
     
     res.status(201).json({
-      success: true,
       message: 'User registered successfully',
-      user: {
-        userId,
-        firstName,
-        lastName,
-        email,
-        role
-      }
+      user: { userId, email, firstName, lastName, role }
     });
     
   } catch (error) {
@@ -2865,57 +2844,65 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// Login
+// Login endpoint
 app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
-  
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
-  }
-  
   let client;
   try {
+    const { email, password } = req.body;
+    
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    
     client = await connectToDb();
     
+    // Find user
     const result = await client.query(
-      'SELECT user_id, email, password_hash, first_name, last_name, role FROM users WHERE email = $1',
+      'SELECT * FROM users WHERE email = $1',
       [email]
     );
     
     if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
     
     const user = result.rows[0];
     
-    // Compare passwords
-    const match = await bcrypt.compare(password, user.password_hash);
+    // Verify password
+    const passwordValid = await bcrypt.compare(password, user.password_hash);
     
-    if (!match) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+    if (!passwordValid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
     
     // Generate JWT token
     const token = jwt.sign(
-      { userId: user.user_id, email: user.email, role: user.role },
+      { 
+        userId: user.user_id, 
+        email: user.email, 
+        role: user.role,
+        firstName: user.first_name,
+        lastName: user.last_name
+      },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
     
-    // Set token in cookie
+    // Set token as HTTP-only cookie
     res.cookie('token', token, {
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: 'strict'
     });
     
     res.json({
-      success: true,
       message: 'Login successful',
       user: {
         userId: user.user_id,
+        email: user.email,
         firstName: user.first_name,
         lastName: user.last_name,
-        email: user.email,
         role: user.role
       }
     });
@@ -2924,64 +2911,458 @@ app.post('/api/login', async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Login failed' });
   } finally {
-    if (client) await client.end();
+    if (client) {
+      await client.end();
+    }
   }
 });
 
-// Logout
+// Logout endpoint
 app.post('/api/logout', (req, res) => {
   res.clearCookie('token');
-  res.json({ success: true, message: 'Logout successful' });
+  res.json({ message: 'Logout successful' });
 });
 
-// Database test route
+// Test database connection
 app.get('/test-db', async (req, res) => {
-  let client;
   try {
-    client = await connectToDb();
+    const client = await connectToDb();
+    const result = await client.query('SELECT NOW() as time');
+    await client.end();
     
-    const result = await client.query('SELECT NOW() as current_time');
-    
-    res.json({
-      success: true,
-      message: 'Database connection successful',
-      current_time: result.rows[0].current_time
-    });
-    
+    res.send(`
+      <html>
+        <head>
+          <title>Database Test</title>
+          <style>
+            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+            h1 { color: #c57100; }
+            .success { color: green; }
+          </style>
+        </head>
+        <body>
+          <h1>Database Test</h1>
+          <p class="success">Connection successful!</p>
+          <p>Database server time: ${result.rows[0].time}</p>
+          <p><a href="/">Back to home</a></p>
+        </body>
+      </html>
+    `);
   } catch (error) {
-    console.error('Database connection error:', error);
-    res.status(500).json({ error: 'Database connection failed' });
-  } finally {
-    if (client) await client.end();
+    res.status(500).send(`
+      <html>
+        <head>
+          <title>Database Error</title>
+          <style>
+            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+            h1 { color: #c57100; }
+            .error { color: red; }
+          </style>
+        </head>
+        <body>
+          <h1>Database Error</h1>
+          <p class="error">Error: ${error.message}</p>
+          <p><a href="/">Back to home</a></p>
+        </body>
+      </html>
+    `);
   }
 });
 
-// Database setup route (for initial setup or reset)
+// Setup database tables
 app.get('/setup-db', async (req, res) => {
   let client;
   try {
     client = await connectToDb();
     
-    // Create all necessary tables and seed initial data
-    // This would typically be a lengthy SQL script with all table creations
-    // For brevity, we'll just confirm the action
+    // Start transaction
+    await client.query('BEGIN');
     
-    res.json({
-      success: true,
-      message: 'Database setup would be executed here'
-    });
+    console.log('Setting up database tables...');
     
+    // Enable UUID extension
+    await client.query(`
+      CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    `);
+    
+    // Create users table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        user_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        first_name VARCHAR(100) NOT NULL,
+        last_name VARCHAR(100) NOT NULL,
+        role VARCHAR(20) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('Users table created');
+    
+    // Create certification_levels table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS certification_levels (
+        level_id SERIAL PRIMARY KEY,
+        level_name VARCHAR(50) UNIQUE NOT NULL,
+        description TEXT,
+        is_active BOOLEAN DEFAULT TRUE
+      );
+    `);
+    console.log('Certification levels table created');
+    
+    // Create students table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS students (
+        student_id UUID PRIMARY KEY REFERENCES users(user_id),
+        certification_level_id INTEGER REFERENCES certification_levels(level_id),
+        student_number VARCHAR(50) UNIQUE,
+        enrollment_date DATE NOT NULL,
+        graduation_date DATE,
+        status VARCHAR(20) DEFAULT 'active',
+        notes TEXT
+      );
+    `);
+    console.log('Students table created');
+    
+    // Create skill_categories table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS skill_categories (
+        category_id SERIAL PRIMARY KEY,
+        category_name VARCHAR(100) NOT NULL,
+        description TEXT
+      );
+    `);
+    console.log('Skill categories table created');
+    
+    // Create skills table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS skills (
+        skill_id SERIAL PRIMARY KEY,
+        category_id INTEGER REFERENCES skill_categories(category_id),
+        skill_name VARCHAR(100) NOT NULL,
+        description TEXT,
+        is_active BOOLEAN DEFAULT TRUE
+      );
+    `);
+    console.log('Skills table created');
+
+    // Create certification_skills table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS certification_skills (
+        cert_skill_id SERIAL PRIMARY KEY,
+        certification_level_id INTEGER REFERENCES certification_levels(level_id),
+        skill_id INTEGER REFERENCES skills(skill_id),
+        repetitions_required INTEGER DEFAULT 1,
+        is_required BOOLEAN DEFAULT TRUE,
+        is_active BOOLEAN DEFAULT TRUE,
+        UNIQUE(certification_level_id, skill_id)
+      );
+    `);
+    console.log('Certification skills table created');
+    
+    // Create student_skills table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS student_skills (
+        completion_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        student_id UUID REFERENCES students(student_id),
+        skill_id INTEGER REFERENCES skills(skill_id),
+        completion_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        location VARCHAR(255),
+        notes TEXT,
+        verified_by UUID REFERENCES users(user_id),
+        verified_at TIMESTAMP,
+        is_successful BOOLEAN DEFAULT TRUE
+      );
+    `);
+    console.log('Student skills table created');
+    
+    // Create clinical_locations table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS clinical_locations (
+        location_id SERIAL PRIMARY KEY,
+        location_name VARCHAR(255) NOT NULL,
+        address TEXT,
+        city VARCHAR(100),
+        state VARCHAR(50),
+        zip VARCHAR(20),
+        phone VARCHAR(20),
+        contact_person VARCHAR(100),
+        notes TEXT,
+        is_active BOOLEAN DEFAULT TRUE
+      );
+    `);
+    console.log('Clinical locations table created');
+    
+    // Create clinical_opportunities table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS clinical_opportunities (
+        opportunity_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        location_id INTEGER REFERENCES clinical_locations(location_id),
+        certification_level_id INTEGER REFERENCES certification_levels(level_id),
+        start_datetime TIMESTAMP NOT NULL,
+        end_datetime TIMESTAMP NOT NULL,
+        slots_available INTEGER DEFAULT 1,
+        created_by UUID REFERENCES users(user_id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        notes TEXT
+      );
+    `);
+    console.log('Clinical opportunities table created');
+    
+    // Create student_preferences table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS student_preferences (
+        preference_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        student_id UUID REFERENCES students(student_id),
+        opportunity_id UUID REFERENCES clinical_opportunities(opportunity_id),
+        preference_rank INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(student_id, opportunity_id)
+      );
+    `);
+    console.log('Student preferences table created');
+    
+    // Create student_clinicals table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS student_clinicals (
+        assignment_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        student_id UUID REFERENCES students(student_id),
+        opportunity_id UUID REFERENCES clinical_opportunities(opportunity_id),
+        status VARCHAR(20) DEFAULT 'scheduled',
+        assigned_by UUID REFERENCES users(user_id),
+        assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        notes TEXT,
+        hours_completed DECIMAL(5,2),
+        UNIQUE(student_id, opportunity_id)
+      );
+    `);
+    console.log('Student clinicals table created');
+    
+    // Create patient_contacts table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS patient_contacts (
+        contact_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        student_id UUID REFERENCES students(student_id),
+        clinical_id UUID REFERENCES student_clinicals(assignment_id),
+        contact_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        patient_age INTEGER,
+        patient_gender VARCHAR(10),
+        chief_complaint TEXT,
+        bp_systolic INTEGER,
+        bp_diastolic INTEGER,
+        heart_rate INTEGER,
+        respiratory_rate INTEGER,
+        spo2 DECIMAL(5,2),
+        temperature DECIMAL(5,2),
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('Patient contacts table created');
+    
+    // Create patient_interventions table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS patient_interventions (
+        intervention_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        contact_id UUID REFERENCES patient_contacts(contact_id),
+        skill_id INTEGER REFERENCES skills(skill_id),
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('Patient interventions table created');
+    
+    // Create system_config table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS system_config (
+        config_id SERIAL PRIMARY KEY,
+        certification_level_id INTEGER REFERENCES certification_levels(level_id),
+        feature_key VARCHAR(100) NOT NULL,
+        feature_value TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(certification_level_id, feature_key)
+      );
+    `);
+    console.log('System config table created');
+    
+    // Insert initial data if tables are empty
+    
+    // Check if certification_levels is empty
+    const certLevelsCheck = await client.query('SELECT COUNT(*) FROM certification_levels');
+    if (parseInt(certLevelsCheck.rows[0].count) === 0) {
+      // Insert certification levels
+      await client.query(`
+        INSERT INTO certification_levels (level_name, description)
+        VALUES 
+          ('EMR', 'Emergency Medical Responder'),
+          ('EMT', 'Emergency Medical Technician'),
+          ('AEMT', 'Advanced Emergency Medical Technician'),
+          ('Paramedic', 'Paramedic');
+      `);
+      console.log('Inserted certification levels');
+    }
+    
+    // Check if skill_categories is empty
+    const skillCategoriesCheck = await client.query('SELECT COUNT(*) FROM skill_categories');
+    if (parseInt(skillCategoriesCheck.rows[0].count) === 0) {
+      // Insert skill categories
+      await client.query(`
+        INSERT INTO skill_categories (category_name, description)
+        VALUES
+          ('Airway', 'Airway management skills'),
+          ('Assessment', 'Patient assessment skills'),
+          ('Circulation', 'Circulatory support skills'),
+          ('Medical', 'Medical emergency skills'),
+          ('Trauma', 'Trauma management skills');
+      `);
+      console.log('Inserted skill categories');
+    }
+
+    // Insert some sample skills if skills table is empty
+    const skillsCheck = await client.query('SELECT COUNT(*) FROM skills');
+    if (parseInt(skillsCheck.rows[0].count) === 0) {
+      // Get category IDs
+      const categories = await client.query('SELECT category_id, category_name FROM skill_categories');
+      const categoryMap = {};
+      
+      // Create a map of category name to ID
+      categories.rows.forEach(cat => {
+        categoryMap[cat.category_name] = cat.category_id;
+      });
+      
+      // Insert skills
+      await client.query(`
+        INSERT INTO skills (category_id, skill_name, description)
+        VALUES
+          (${categoryMap['Airway']}, 'Oral Airway Insertion', 'Properly insert an oropharyngeal airway'),
+          (${categoryMap['Airway']}, 'Bag-Valve-Mask', 'Properly ventilate a patient using a BVM'),
+          (${categoryMap['Airway']}, 'Suctioning', 'Properly suction a patient airway'),
+          (${categoryMap['Assessment']}, 'Vital Signs', 'Properly assess patient vital signs'),
+          (${categoryMap['Assessment']}, 'Patient History', 'Properly obtain a comprehensive patient history'),
+          (${categoryMap['Circulation']}, 'CPR', 'Properly perform CPR on an adult patient'),
+          (${categoryMap['Circulation']}, 'Bleeding Control', 'Properly control external bleeding'),
+          (${categoryMap['Circulation']}, 'Tourniquet Application', 'Properly apply a tourniquet to control bleeding'),
+          (${categoryMap['Medical']}, 'Medication Administration', 'Properly administer medications per protocol'),
+          (${categoryMap['Trauma']}, 'Bandaging', 'Properly apply bandages to wounds'),
+          (${categoryMap['Trauma']}, 'Splinting', 'Properly apply splints to suspected fractures');
+      `);
+      console.log('Inserted sample skills');
+    }
+
+    // Insert system configuration if empty
+    const configCheck = await client.query('SELECT COUNT(*) FROM system_config');
+    if (parseInt(configCheck.rows[0].count) === 0) {
+      // Get certification level IDs
+      const levels = await client.query('SELECT level_id, level_name FROM certification_levels');
+      const levelMap = {};
+      
+      // Create a map of level name to ID
+      levels.rows.forEach(level => {
+        levelMap[level.level_name] = level.level_id;
+      });
+      
+     // Insert configuration
+      await client.query(`
+        INSERT INTO system_config (certification_level_id, feature_key, feature_value)
+        VALUES
+          (${levelMap['EMR']}, 'enable_clinical_hours_tracking', 'false'),
+          (${levelMap['EMR']}, 'enable_patient_contacts_tracking', 'true'),
+          (${levelMap['EMT']}, 'enable_clinical_hours_tracking', 'false'),
+          (${levelMap['EMT']}, 'enable_patient_contacts_tracking', 'true'),
+          (${levelMap['AEMT']}, 'enable_clinical_hours_tracking', 'true'),
+          (${levelMap['AEMT']}, 'enable_patient_contacts_tracking', 'true'),
+          (${levelMap['Paramedic']}, 'enable_clinical_hours_tracking', 'true'),
+          (${levelMap['Paramedic']}, 'enable_patient_contacts_tracking', 'true');
+      `);
+      console.log('Inserted system configuration');
+      
+      // Add patient contact requirements for each level
+      await client.query(`
+        INSERT INTO system_config (certification_level_id, feature_key, feature_value)
+        VALUES
+          (${levelMap['EMR']}, 'patient_contacts_required', '5'),
+          (${levelMap['EMT']}, 'patient_contacts_required', '10'),
+          (${levelMap['AEMT']}, 'patient_contacts_required', '15'),
+          (${levelMap['Paramedic']}, 'patient_contacts_required', '20')
+        ON CONFLICT (certification_level_id, feature_key) DO NOTHING;
+      `);
+      console.log('Inserted patient contact requirements');
+    }
+    
+    // Commit transaction
+    await client.query('COMMIT');
+    
+    res.send(`
+      <html>
+        <head>
+          <title>Database Setup</title>
+          <style>
+            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+            h1 { color: #c57100; }
+            .success { color: green; }
+            ul { line-height: 1.6; }
+          </style>
+        </head>
+        <body>
+          <h1>Database Setup</h1>
+          <p class="success">Database tables created successfully!</p>
+          <p>The following tables were created:</p>
+          <ul>
+            <li>users</li>
+            <li>certification_levels</li>
+            <li>students</li>
+            <li>skill_categories</li>
+            <li>skills</li>
+            <li>certification_skills</li>
+            <li>student_skills</li>
+            <li>clinical_locations</li>
+            <li>clinical_opportunities</li>
+            <li>student_preferences</li>
+            <li>student_clinicals</li>
+            <li>patient_contacts</li>
+            <li>patient_interventions</li>
+            <li>system_config</li>
+          </ul>
+          <p>Initial data for certification levels, skill categories, sample skills, and system configuration has been inserted.</p>
+          <p><a href="/">Back to home</a></p>
+        </body>
+      </html>
+    `);
   } catch (error) {
-    console.error('Database setup error:', error);
-    res.status(500).json({ error: 'Database setup failed' });
+    // Rollback transaction on error
+    if (client) {
+      await client.query('ROLLBACK');
+    }
+    
+    console.error('Error setting up database:', error);
+    
+    res.status(500).send(`
+      <html>
+        <head>
+          <title>Database Setup Error</title>
+          <style>
+            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+            h1 { color: #c57100; }
+            .error { color: red; }
+          </style>
+        </head>
+        <body>
+          <h1>Database Setup Error</h1>
+          <p class="error">Error: ${error.message}</p>
+          <p><a href="/">Back to home</a></p>
+        </body>
+      </html>
+    `);
   } finally {
-    if (client) await client.end();
+    if (client) {
+      await client.end();
+    }
   }
 });
 
-// Start server
+// Start the server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-module.exports = app;
