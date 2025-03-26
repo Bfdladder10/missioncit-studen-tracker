@@ -1,8 +1,8 @@
 // Database schema updates for clinical scheduling and ride time tracking
-const { pool } = require('../config/database');
+const { connectToDb } = require('../config/database');
 
 async function updateSchedulingSchema() {
-  const client = await pool.connect();
+  const client = await connectToDb();
   
   try {
     await client.query('BEGIN');
