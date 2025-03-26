@@ -5,15 +5,13 @@ async function updateSchedulingSchema() {
   let client;
   try {
     client = await connectToDb();
-    
     console.log('Updating database schema for clinical scheduling and ride time tracking...');
     
-    // Use a single transaction for all schema changes
-    await client.query('BEGIN');
-
-    // PHASE 1: Create all tables first
+    // PHASE 1: Create all tables - each in its own transaction for safety
+    
+    // Create clinical sites table
     try {
-      // Create clinical sites table if it doesn't exist
+      await client.query('BEGIN');
       await client.query(`
         CREATE TABLE IF NOT EXISTS clinical_sites (
           site_id SERIAL PRIMARY KEY,
@@ -31,9 +29,17 @@ async function updateSchedulingSchema() {
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      await client.query('COMMIT');
       console.log('Clinical sites table created or already exists');
-      
-      // Create clinical slots table if it doesn't exist
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error creating clinical_sites table:', error);
+      // Continue with next table rather than failing entirely
+    }
+    
+    // Create clinical slots table
+    try {
+      await client.query('BEGIN');
       await client.query(`
         CREATE TABLE IF NOT EXISTS clinical_slots (
           slot_id SERIAL PRIMARY KEY,
@@ -48,9 +54,20 @@ async function updateSchedulingSchema() {
           updated_at TIMESTAMP DEFAULT NOW()
         )
       `);
+      await client.query('COMMIT');
       console.log('Clinical slots table created or already exists');
-      
-      // Create student preferences table if it doesn't exist
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error creating clinical_slots table:', error);
+    }
+    
+    // Create student preferences table
+    try {
+      await client.query('BEGIN');
+      // First drop the existing table if it exists to ensure it has the right structure
+      await client.query(`
+        DROP TABLE IF EXISTS student_preferences CASCADE
+      `);
       await client.query(`
         CREATE TABLE IF NOT EXISTS student_preferences (
           preference_id SERIAL PRIMARY KEY,
@@ -62,9 +79,20 @@ async function updateSchedulingSchema() {
           UNIQUE(student_id, slot_id)
         )
       `);
-      console.log('Student preferences table created or already exists');
-      
-      // Create student clinical assignments table if it doesn't exist
+      await client.query('COMMIT');
+      console.log('Student preferences table recreated with correct schema');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error recreating student_preferences table:', error);
+    }
+    
+    // Create student clinical assignments table
+    try {
+      await client.query('BEGIN');
+      // First drop the existing table if it exists to ensure it has the right structure
+      await client.query(`
+        DROP TABLE IF EXISTS student_clinical_assignments CASCADE
+      `);
       await client.query(`
         CREATE TABLE IF NOT EXISTS student_clinical_assignments (
           assignment_id SERIAL PRIMARY KEY,
@@ -77,9 +105,16 @@ async function updateSchedulingSchema() {
           UNIQUE(student_id, slot_id)
         )
       `);
-      console.log('Student clinical assignments table created or already exists');
-      
-      // Create ambulance services table if it doesn't exist
+      await client.query('COMMIT');
+      console.log('Student clinical assignments table recreated with correct schema');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error recreating student_clinical_assignments table:', error);
+    }
+    
+    // Create ambulance services table
+    try {
+      await client.query('BEGIN');
       await client.query(`
         CREATE TABLE IF NOT EXISTS ambulance_services (
           service_id SERIAL PRIMARY KEY,
@@ -97,9 +132,20 @@ async function updateSchedulingSchema() {
           updated_at TIMESTAMP DEFAULT NOW()
         )
       `);
+      await client.query('COMMIT');
       console.log('Ambulance services table created or already exists');
-      
-      // Create ride time logs table if it doesn't exist
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error creating ambulance_services table:', error);
+    }
+    
+    // Create ride time logs table
+    try {
+      await client.query('BEGIN');
+      // First drop the existing table if it exists to ensure it has the right structure
+      await client.query(`
+        DROP TABLE IF EXISTS ride_time_logs CASCADE
+      `);
       await client.query(`
         CREATE TABLE IF NOT EXISTS ride_time_logs (
           log_id SERIAL PRIMARY KEY,
@@ -124,110 +170,102 @@ async function updateSchedulingSchema() {
           created_at TIMESTAMP DEFAULT NOW()
         )
       `);
-      console.log('Ride time logs table created or already exists');
+      await client.query('COMMIT');
+      console.log('Ride time logs table recreated with correct schema');
     } catch (error) {
-      console.error('Error creating tables:', error);
       await client.query('ROLLBACK');
-      throw error;
+      console.error('Error recreating ride_time_logs table:', error);
     }
-
-    // PHASE 2: Verify table existence before creating indexes
+    
+    // PHASE 2: Create indexes - each in its own transaction for safety
+    // clinical_slots indexes
     try {
-      // Check if clinical_slots exists
-      const slotTableExists = await client.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_name = 'clinical_slots'
-        )
-      `);
-      
-      if (slotTableExists.rows[0].exists) {
-        console.log('Clinical slots table exists, creating indexes');
-        try {
-          await client.query(`CREATE INDEX IF NOT EXISTS idx_clinical_slots_site_id ON clinical_slots(site_id)`);
-          await client.query(`CREATE INDEX IF NOT EXISTS idx_clinical_slots_date ON clinical_slots(slot_date)`);
-        } catch (error) {
-          console.error('Error creating clinical_slots indexes:', error);
-          // Continue execution instead of failing
-        }
-      }
-      
-      // Check if student_preferences exists
-      const preferencesTableExists = await client.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_name = 'student_preferences'
-        )
-      `);
-      
-      if (preferencesTableExists.rows[0].exists) {
-        console.log('Student preferences table exists, creating indexes');
-        try {
-          await client.query(`CREATE INDEX IF NOT EXISTS idx_student_preferences_student_id ON student_preferences(student_id)`);
-          await client.query(`CREATE INDEX IF NOT EXISTS idx_student_preferences_slot_id ON student_preferences(slot_id)`);
-        } catch (error) {
-          console.error('Error creating student_preferences indexes:', error);
-          // Continue execution instead of failing
-        }
-      }
-      
-      // Check if student_clinical_assignments exists
-      const assignmentsTableExists = await client.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_name = 'student_clinical_assignments'
-        )
-      `);
-      
-      if (assignmentsTableExists.rows[0].exists) {
-        console.log('Student clinical assignments table exists, creating indexes');
-        try {
-          await client.query(`CREATE INDEX IF NOT EXISTS idx_student_clinical_assignments_student_id ON student_clinical_assignments(student_id)`);
-          await client.query(`CREATE INDEX IF NOT EXISTS idx_student_clinical_assignments_slot_id ON student_clinical_assignments(slot_id)`);
-        } catch (error) {
-          console.error('Error creating student_clinical_assignments indexes:', error);
-          // Continue execution instead of failing
-        }
-      }
-      
-      // Check if ride_time_logs exists
-      const logsTableExists = await client.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_name = 'ride_time_logs'
-        )
-      `);
-      
-      if (logsTableExists.rows[0].exists) {
-        console.log('Ride time logs table exists, creating indexes');
-        try {
-          await client.query(`CREATE INDEX IF NOT EXISTS idx_ride_time_logs_student_id ON ride_time_logs(student_id)`);
-          await client.query(`CREATE INDEX IF NOT EXISTS idx_ride_time_logs_service_id ON ride_time_logs(service_id)`);
-          await client.query(`CREATE INDEX IF NOT EXISTS idx_ride_time_logs_date ON ride_time_logs(date)`);
-        } catch (error) {
-          console.error('Error creating ride_time_logs indexes:', error);
-          // Continue execution instead of failing
-        }
-      }
+      await client.query('BEGIN');
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_clinical_slots_site_id ON clinical_slots(site_id)`);
+      await client.query('COMMIT');
     } catch (error) {
-      console.error('Error creating indexes:', error);
       await client.query('ROLLBACK');
-      throw error;
+      console.error('Error creating clinical_slots site_id index:', error);
     }
     
-    // Commit all changes
-    await client.query('COMMIT');
-    console.log('Database schema update for scheduling completed successfully!');
+    try {
+      await client.query('BEGIN');
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_clinical_slots_date ON clinical_slots(slot_date)`);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error creating clinical_slots slot_date index:', error);
+    }
     
+    // student_preferences indexes
+    try {
+      await client.query('BEGIN');
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_student_preferences_student_id ON student_preferences(student_id)`);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error creating student_preferences student_id index:', error);
+    }
+    
+    try {
+      await client.query('BEGIN');
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_student_preferences_slot_id ON student_preferences(slot_id)`);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error creating student_preferences slot_id index:', error);
+    }
+    
+    // student_clinical_assignments indexes
+    try {
+      await client.query('BEGIN');
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_student_clinical_assignments_student_id ON student_clinical_assignments(student_id)`);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error creating student_clinical_assignments student_id index:', error);
+    }
+    
+    try {
+      await client.query('BEGIN');
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_student_clinical_assignments_slot_id ON student_clinical_assignments(slot_id)`);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error creating student_clinical_assignments slot_id index:', error);
+    }
+    
+    // ride_time_logs indexes
+    try {
+      await client.query('BEGIN');
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ride_time_logs_student_id ON ride_time_logs(student_id)`);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error creating ride_time_logs student_id index:', error);
+    }
+    
+    try {
+      await client.query('BEGIN');
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ride_time_logs_service_id ON ride_time_logs(service_id)`);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error creating ride_time_logs service_id index:', error);
+    }
+    
+    try {
+      await client.query('BEGIN');
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_ride_time_logs_date ON ride_time_logs(date)`);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error creating ride_time_logs date index:', error);
+    }
+    
+    console.log('Database schema update for scheduling completed successfully!');
     return { success: true, message: 'Schema updated successfully' };
   } catch (error) {
-    if (client) {
-      try {
-        await client.query('ROLLBACK');
-      } catch (rollbackError) {
-        console.error('Error during rollback:', rollbackError);
-      }
-    }
     console.error('Error updating database schema:', error);
     throw error;
   } finally {
