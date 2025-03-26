@@ -154,15 +154,21 @@
   // Load certification levels
   async function loadCertificationLevels() {
     try {
-      const response = await fetch('/api/admin/certification-levels');
+      const response = await fetch('/api/certification-levels');
       
       if (!response.ok) {
         throw new Error('Failed to fetch certification levels');
       }
       
-      const levels = await response.json();
+      const data = await response.json();
+      const levels = data.levels || [];
       const levelsList = document.getElementById('levelsList');
       levelsList.innerHTML = '';
+      
+      if (levels.length === 0) {
+        levelsList.innerHTML = '<tr><td colspan="5" class="text-center">No certification levels found</td></tr>';
+        return;
+      }
       
       levels.forEach(level => {
         const row = document.createElement('tr');
