@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>EMS Tracker - Dashboard</title>
+    <link rel="stylesheet" href="/css/styles.css">
+  </head>
+  <body>
+    <div class="dashboard-container">
+      <header class="dashboard-header">
+        <div class="logo">
+          <h1>EMS Skills Tracker</h1>
+        </div>
+        <div class="user-info">
+          <span id="userName">Welcome, <%= user.firstName %> <%= user.lastName %>!</span>
+          <a href="/api/auth/logout" class="button small">Logout</a>
+        </div>
+      </header>
+
+      <div class="dashboard-content">
+        <div class="sidebar">
+          <nav>
+            <ul>
+              <li><a href="/dashboard" class="active">Dashboard</a></li>
+              <li><a href="/skills">Skills</a></li>
+              <li><a href="/clinical">Clinical</a></li>
+              <li><a href="/ride-time">Ride Time</a></li>
+              <li><a href="/profile">Profile</a></li>
+            </ul>
+          </nav>
+        </div>
+
+        <main class="main-content">
+          <h2>Welcome to EMS Skills Tracker</h2>
+          
+          <div class="card-grid">
+            <div class="card">
+              <h3>Skills Progress</h3>
+              <p>Track and complete your required clinical skills.</p>
+              <a href="/skills" class="button">View Skills</a>
+            </div>
+            
+            <div class="card">
+              <h3>Clinical Scheduling</h3>
+              <p>View and manage your clinical schedules.</p>
+              <a href="/clinical" class="button">View Schedule</a>
+            </div>
+            
+            <div class="card">
+              <h3>Ride Time</h3>
+              <p>Log and monitor your ride time hours.</p>
+              <a href="/ride-time" class="button">View Ride Time</a>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script>
+      // JavaScript for any dashboard interactivity can go here
+    </script>
+  </body>
+</html>

@@ -6,6 +6,9 @@ const fileUpload = require('express-fileupload');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 
+// Import auth middleware
+const { authMiddleware } = require('./middleware/auth');
+
 // Import routes
 const adminRoutes = require('./routes/adminRoutes');
 const authRoutes = require('./routes/authRoutes');
@@ -79,6 +82,15 @@ app.get('/admin/dashboard', (req, res) => {
     user: req.user,
     title: 'Admin Dashboard',
     path: '/admin/dashboard'
+  });
+});
+
+// User dashboard route
+app.get('/dashboard', authMiddleware, (req, res) => {
+  res.render('dashboard', { 
+    title: 'Dashboard',
+    user: req.user,
+    path: '/dashboard'
   });
 });
 
