@@ -136,6 +136,7 @@ app.get('/login', (req, res) => {
             e.preventDefault();
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
+            const errorMsg = document.getElementById('errorMessage');
             
             try {
               const response = await fetch('/api/login', {
@@ -146,17 +147,32 @@ app.get('/login', (req, res) => {
                 body: JSON.stringify({ email, password })
               });
               
-              const data = await response.json();
+              // Check if the response is JSON before trying to parse it
+              const contentType = response.headers.get('content-type');
+              let data;
+              
+              if (contentType && contentType.includes('application/json')) {
+                try {
+                  data = await response.json();
+                } catch (jsonError) {
+                  console.error('JSON parsing error:', jsonError);
+                  throw new Error('Server response format error. Please try again later.');
+                }
+              } else {
+                // Handle non-JSON responses (e.g., HTML error pages)
+                const textResponse = await response.text();
+                console.error('Non-JSON response received:', textResponse.substring(0, 150) + '...');
+                throw new Error('Server returned an invalid response format. Please try again later.');
+              }
               
               if (!response.ok) {
-                throw new Error(data.error || 'Login failed');
+                throw new Error(data?.error || 'Login failed');
               }
               
               // Redirect to dashboard on success
               window.location.href = '/dashboard';
               
             } catch (error) {
-              const errorMsg = document.getElementById('errorMessage');
               errorMsg.textContent = error.message;
               errorMsg.style.display = 'block';
             }
