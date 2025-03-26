@@ -2,12 +2,32 @@
 const { connectToDb } = require('../config/database');
 
 async function updateSchedulingSchema() {
-  const client = await connectToDb();
-  
+  let client;
   try {
+    client = await connectToDb();
+    
     await client.query('BEGIN');
     
     console.log('Updating database schema for clinical scheduling and ride time tracking...');
+    
+    // Create clinical sites table if it doesn't exist
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS clinical_sites (
+        site_id SERIAL PRIMARY KEY,
+        site_name VARCHAR(255) NOT NULL,
+        address VARCHAR(255),
+        city VARCHAR(100),
+        state VARCHAR(50),
+        zip VARCHAR(20),
+        contact_name VARCHAR(255),
+        contact_phone VARCHAR(20),
+        contact_email VARCHAR(255),
+        is_active BOOLEAN DEFAULT TRUE,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
     
     // Create clinical slots table if it doesn't exist
     await client.query(`
@@ -116,11 +136,15 @@ async function updateSchedulingSchema() {
     
     return { success: true, message: 'Schema updated successfully' };
   } catch (error) {
-    await client.query('ROLLBACK');
+    if(client) {
+      await client.query('ROLLBACK');
+    }
     console.error('Error updating database schema:', error);
     throw error;
   } finally {
-    client.release();
+    if(client) {
+      await client.end();
+    }
   }
 }
 
