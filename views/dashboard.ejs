@@ -3,60 +3,100 @@
   <head>
     <title>EMS Tracker - Dashboard</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <link rel="stylesheet" href="/css/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   </head>
   <body>
     <div class="dashboard-container">
-      <header class="dashboard-header">
-        <div class="logo">
+      <div class="sidebar">
+        <div class="logo-container">
           <h1>EMS Skills Tracker</h1>
         </div>
-        <div class="user-info">
-          <span id="userName">Welcome, <%= user.firstName %> <%= user.lastName %>!</span>
-          <a href="/api/auth/logout" class="button small">Logout</a>
-        </div>
-      </header>
+        <nav>
+          <ul>
+            <li><a href="/dashboard" class="active"><i class="fas fa-home icon"></i> Dashboard</a></li>
+            <li><a href="/skills"><i class="fas fa-check-square icon"></i> Skills</a></li>
+            <li><a href="/clinical"><i class="fas fa-hospital icon"></i> Clinical</a></li>
+            <li><a href="/ride-time"><i class="fas fa-ambulance icon"></i> Ride Time</a></li>
+            <li><a href="/profile"><i class="fas fa-user icon"></i> Profile</a></li>
+            <% if (user && user.role === 'admin') { %>
+            <li><a href="/admin/dashboard"><i class="fas fa-cog icon"></i> Admin Dashboard</a></li>
+            <% } %>
+          </ul>
+        </nav>
+      </div>
 
-      <div class="dashboard-content">
-        <div class="sidebar">
-          <nav>
-            <ul>
-              <li><a href="/dashboard" class="active">Dashboard</a></li>
-              <li><a href="/skills">Skills</a></li>
-              <li><a href="/clinical">Clinical</a></li>
-              <li><a href="/ride-time">Ride Time</a></li>
-              <li><a href="/profile">Profile</a></li>
-            </ul>
-          </nav>
+      <div class="main-content">
+        <div class="main-header">
+          <h2>Welcome, <%= user.firstName %> <%= user.lastName %></h2>
+          <div class="user-actions">
+            <a href="/api/auth/logout" class="button"><i class="fas fa-sign-out-alt"></i> Logout</a>
+          </div>
         </div>
 
-        <main class="main-content">
-          <h2>Welcome to EMS Skills Tracker</h2>
-          
-          <div class="card-grid">
-            <div class="card">
-              <h3>Skills Progress</h3>
-              <p>Track and complete your required clinical skills.</p>
-              <a href="/skills" class="button">View Skills</a>
-            </div>
-            
-            <div class="card">
-              <h3>Clinical Scheduling</h3>
-              <p>View and manage your clinical schedules.</p>
-              <a href="/clinical" class="button">View Schedule</a>
-            </div>
-            
-            <div class="card">
-              <h3>Ride Time</h3>
-              <p>Log and monitor your ride time hours.</p>
-              <a href="/ride-time" class="button">View Ride Time</a>
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-title">Skills Completed</div>
+            <div class="stat-value">0</div>
+            <div class="progress-container">
+              <div class="progress-bar" style="width: 0%"></div>
             </div>
           </div>
-        </main>
+          <div class="stat-card">
+            <div class="stat-title">Clinical Hours</div>
+            <div class="stat-value">0</div>
+            <div class="progress-container">
+              <div class="progress-bar" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-title">Ride Time Hours</div>
+            <div class="stat-value">0</div>
+            <div class="progress-container">
+              <div class="progress-bar" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+          
+        <div class="card-grid">
+          <div class="dashboard-card">
+            <h3><i class="fas fa-check-square icon"></i> Skills Progress</h3>
+            <p>Track and complete your required clinical skills based on your certification level.</p>
+            <a href="/skills" class="button">View Skills</a>
+          </div>
+            
+          <div class="dashboard-card">
+            <h3><i class="fas fa-calendar-alt icon"></i> Clinical Scheduling</h3>
+            <p>View and manage your clinical schedules and track your clinical hours.</p>
+            <a href="/clinical" class="button">View Schedule</a>
+          </div>
+            
+          <div class="dashboard-card">
+            <h3><i class="fas fa-ambulance icon"></i> Ride Time</h3>
+            <p>Log and monitor your ride time hours with emergency medical services.</p>
+            <a href="/ride-time" class="button">View Ride Time</a>
+          </div>
+          
+          <div class="dashboard-card">
+            <h3><i class="fas fa-clipboard-list icon"></i> Requirements</h3>
+            <p>Check your progress towards certification requirements and completion status.</p>
+            <a href="/requirements" class="button">View Requirements</a>
+          </div>
+        </div>
       </div>
     </div>
 
     <script>
-      // JavaScript for any dashboard interactivity can go here
+      // JavaScript for dashboard interactivity
+      // This will be expanded with actual data in future
+      document.addEventListener('DOMContentLoaded', async () => {
+        try {
+          // This is where we would fetch stats from the server
+          // Placeholder for future implementation
+        } catch (error) {
+          console.error('Error loading dashboard data:', error);
+        }
+      });
     </script>
   </body>
 </html>
